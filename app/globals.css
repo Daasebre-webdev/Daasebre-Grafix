@@ -1,0 +1,28 @@
+@import "tailwindcss";
+@import "tailwindcss";
+
+/* Dropdown styling */
+.nav-group {
+  font-weight: 600;
+  color: #374151; /* gray-700 */
+}
+.nav-group:hover {
+  color: #1d4ed8; /* blue-700 */
+}
+
+.dropdown {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 0.5rem;
+  background: white;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  min-width: 180px;
+  z-index: 50;
+  flex-direction: column;
+}
+.group:hover .dropdown {
+  display: flex;
+}
