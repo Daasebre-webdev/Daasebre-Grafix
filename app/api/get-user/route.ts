@@ -5,13 +5,14 @@ export async function GET(req: NextRequest) {
     const cookieHeader = req.headers.get("cookie") || "";
     console.log("➡️ Forwarding cookies:", cookieHeader);
 
-    const res = await fetch("https://pulse.great-site.net/Google_signup/get_user.php", {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        "Cookie": cookieHeader,
-      },
-    });
+  const res = await fetch("https://pulse.great-site.net/Google_signup/get_user.php", {
+  method: "GET",
+  credentials: "include", // ← ADD THIS
+  headers: {
+    "Content-Type": "application/json",
+    // Don't manually set Cookie header - let browser handle it
+  },
+});
 
     const text = await res.text();
     console.log("📥 Raw backend response:", text);
