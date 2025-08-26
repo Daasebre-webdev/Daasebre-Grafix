@@ -4,67 +4,45 @@ import type { NextRequest } from 'next/server';
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  console.log(`[Middleware] Path: ${pathname}`);
+  console.log('Middleware: Path', pathname); // Debug
 
-  // Handle CORS preflight (OPTIONS) requests
-  if (request.method === 'OPTIONS') {
-    return new NextResponse(null, {
-      status: 204,
-      headers: {
-        'Access-Control-Allow-Origin': 'https://pulse-woad-mu.vercel.app',
-        'Access-Control-Allow-Credentials': 'true',
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cookie',
-        'Access-Control-Max-Age': '86400',
-      },
-    });
-  }
-
-  // Public routes that don't require authentication
-  const publicPaths = ['/', '/login', '/verify', '/signup'];
-  if (publicPaths.some((path) => pathname.startsWith(path))) {
+  // Allow public routes
+  if (['/', '/login', '/signup'].includes(pathname)) {
+    console.log('Middleware: Allowing public route');
     return NextResponse.next();
   }
 
-  // Read session token from cookie
+  // Check __test cookie
   const sessionToken = request.cookies.get('__test')?.value;
-  console.log(`[Middleware] Session token: ${sessionToken || 'none'}`);
-
+  console.log('Middleware: Session token', sessionToken || 'none'); // Debug
   if (!sessionToken) {
-    console.log('[Middleware] No session token, redirecting to /login');
+    console.log('Middleware: No token, redirecting to /login');
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  // Verify session token with backend API
+  // Validate token
   try {
-    const apiResponse = await fetch('https://pulse-woad-mu.vercel.app/api/get-user', {
+    const response = await fetch('https://pulse-woad-mu.vercel.app/api/get-user', {
       method: 'GET',
       headers: {
         Cookie: `__test=${sessionToken}`,
+        'Content-Type': 'application/json',
       },
       credentials: 'include',
     });
-
-    const data = await apiResponse.json();
-    console.log('[Middleware] /api/get-user response:', { status: apiResponse.status, data });
-
+    const data = await response.json();
+    console.log('Middleware: /api/get-user response', data); // Debug
     if (!data.user) {
-      console.log('[Middleware] Invalid session, clearing cookie and redirecting to /login');
-
-      const response = NextResponse.redirect(new URL('/login', request.url));
-      // Clear invalid cookie
-      response.cookies.set('__test', '', { path: '/', maxAge: 0 });
-      return response;
+      console.log('Middleware: Invalid token, redirecting to /login');
+      return NextResponse.redirect(new URL('/login', request.url));
     }
-  } catch (error) {
-    console.error('[Middleware] Error verifying session:', error);
+    return NextResponse.next();
+  } catch (err) {
+    console.error('Middleware: Error fetching user', err);
     return NextResponse.redirect(new URL('/login', request.url));
   }
-
-  // Session token is valid, allow access
-  return NextResponse.next();
 }
 
 export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/dashboard/:path*', '/profile/:path*', '/ai/:path*', '/bookmarks/:path*', '/chat/:path*'],
 };
