@@ -37,26 +37,23 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
-  // ✅ Strong typing instead of `any`
-  const processUserData = (userData: Partial<User>): User => {
-    return {
-      id:
-        userData.id?.toString() ||
-        `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      name: userData.name || userData.email?.split('@')[0] || 'Unknown User',
-      email: userData.email || '',
-      picture:
-        userData.picture && !/^https?:\/\//i.test(userData.picture)
-          ? `https://pulse.great-site.net/Google_signup/uploads/${userData.picture}`
-          : userData.picture || '/default-profile.png',
-      reputation: userData.reputation ?? 0,
-      role: userData.role ?? 'user',
-      is_verified: userData.is_verified ?? false,
-      agreed_to_terms: userData.agreed_to_terms ?? false,
-      google_id: userData.google_id,
-      token: userData.token,
-    }
-  }
+  const processUserData = (userData: Partial<User>): User => ({
+    id:
+      userData.id?.toString() ||
+      `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    name: userData.name || userData.email?.split('@')[0] || 'Unknown User',
+    email: userData.email || '',
+    picture:
+      userData.picture && !/^https?:\/\//i.test(userData.picture)
+        ? `https://pulse.great-site.net/Google_signup/uploads/${userData.picture}`
+        : userData.picture || '/default-profile.png',
+    reputation: userData.reputation ?? 0,
+    role: userData.role ?? 'user',
+    is_verified: userData.is_verified ?? false,
+    agreed_to_terms: userData.agreed_to_terms ?? false,
+    google_id: userData.google_id,
+    token: userData.token,
+  })
 
   const login = (userData: User) => {
     const processedUser = processUserData(userData)
@@ -64,52 +61,50 @@ export function UserProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('userData', JSON.stringify(processedUser))
   }
 
-  // ✅ Wrapped fetchUser in useCallback
   const fetchUser = useCallback(async () => {
+    setLoading(true)
     try {
-      console.log('Attempting to fetch user data...')
-
       const res = await fetch('/api/get-user', {
         method: 'GET',
         credentials: 'include',
       })
 
-      console.log('Response status:', res.status)
-
       if (res.status === 401) {
-        console.log('User not authenticated, clearing local data')
         localStorage.removeItem('userData')
         setUser(null)
-        setLoading(false)
         return
       }
 
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`)
 
       const userData = await res.json()
-      console.log('Raw user data from server:', userData)
 
-      if (userData.error) throw new Error(userData.error)
+      if (!userData || userData.user === null) {
+        localStorage.removeItem('userData')
+        setUser(null)
+        return
+      }
 
-      const processedUser = processUserData(userData)
-      console.log('Processed user data:', processedUser)
-
+      const processedUser = processUserData(userData.user)
       setUser(processedUser)
       localStorage.setItem('userData', JSON.stringify(processedUser))
-    } catch (error) {
-      console.error('Fetch user error:', error)
+    } catch (err) {
+      console.error('Fetch user error:', err)
       // fallback to localStorage
       try {
         const storedUser = localStorage.getItem('userData')
         if (storedUser) {
           const parsedUser: User = JSON.parse(storedUser)
-          console.log('Using fallback user data from localStorage')
-          setUser(parsedUser)
+          if (parsedUser.token) {
+            setUser(parsedUser)
+          } else {
+            setUser(null)
+            localStorage.removeItem('userData')
+          }
         } else {
           setUser(null)
         }
-      } catch (localStorageError) {
-        console.error('LocalStorage error:', localStorageError)
+      } catch {
         setUser(null)
       }
     } finally {
@@ -119,80 +114,69 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   const updateUserReputation = (points: number) => {
     if (user) {
-      const updatedUser = {
-        ...user,
-        reputation: (user.reputation || 0) + points,
-      }
+      const updatedUser = { ...user, reputation: (user.reputation || 0) + points }
       setUser(updatedUser)
       localStorage.setItem('userData', JSON.stringify(updatedUser))
     }
   }
-const logout = async () => {
-  try {
-    // Clear local storage
-    localStorage.removeItem('userData');
 
-    // Call PHP logout endpoint to clear token + cookie
-    await fetch(
-      'https://pulse.great-site.net/Google_signup/logout.php',
-      {
-        method: 'POST',
-        credentials: 'include', // sends __test cookie
-      }
-    );
-  } catch (error) {
-    console.error('Logout error:', error);
-  } finally {
-    // Clear frontend state
-    setUser(null);
+  const logout = async () => {
+    try {
+      localStorage.removeItem('userData')
 
-    // Redirect user to the PHP login page
-    window.location.href = 'https://pulse.great-site.net/Google_signup/index.php?t=' + new Date().getTime();
+      await fetch(
+        'https://pulse.great-site.net/Google_signup/logout.php',
+        {
+          method: 'POST',
+          credentials: 'include', // sends __test cookie
+        }
+      )
+    } catch (error) {
+      console.error('Logout error:', error)
+    } finally {
+      setUser(null)
+      window.location.href =
+        'https://pulse.great-site.net/Google_signup/index.php?t=' +
+        new Date().getTime()
+    }
   }
-};
 
-
+  // Optional: listen to userVerified event
   useEffect(() => {
     const handleUserVerified = (event: Event) => {
       const customEvent = event as CustomEvent<User>
-      console.log('User verified event received:', customEvent.detail)
       const processedUser = processUserData(customEvent.detail)
       setUser(processedUser)
       localStorage.setItem('userData', JSON.stringify(processedUser))
     }
-
     window.addEventListener('userVerified', handleUserVerified)
     return () => {
       window.removeEventListener('userVerified', handleUserVerified)
     }
   }, [])
 
+  // Fetch user on mount
   useEffect(() => {
-    const storedUser = localStorage.getItem('userData')
-    if (storedUser) {
-      try {
-        const parsedUser: User = JSON.parse(storedUser)
-        setUser(parsedUser)
-        setLoading(false)
-        console.log('User data loaded from localStorage')
-      } catch (error) {
-        console.error('Error parsing localStorage user data:', error)
-        localStorage.removeItem('userData')
+    fetchUser()
+  }, [fetchUser])
+
+  // Auto-redirect if no user on protected pages
+  useEffect(() => {
+    if (!loading && !user) {
+      const pathname = window.location.pathname
+      if (
+        !pathname.includes('index.php') &&
+        !pathname.includes('Google_signup')
+      ) {
+        window.location.href =
+          'https://pulse.great-site.net/Google_signup/index.php'
       }
     }
-    fetchUser()
-  }, [fetchUser]) // ✅ safe now because fetchUser is memoized
+  }, [loading, user])
 
   return (
     <UserContext.Provider
-      value={{
-        user,
-        loading,
-        logout,
-        fetchUser,
-        updateUserReputation,
-        login,
-      }}
+      value={{ user, loading, logout, fetchUser, updateUserReputation, login }}
     >
       {children}
     </UserContext.Provider>
