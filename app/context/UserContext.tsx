@@ -1,6 +1,13 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  ReactNode,
+  useCallback,
+} from 'react'
 
 interface User {
   id: string
@@ -30,43 +37,41 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const login = (userData: User) => {
-    const processedUser = processUserData(userData)
-    setUser(processedUser)
-    localStorage.setItem('userData', JSON.stringify(processedUser))
-  }
-
-  // Normalize backend data
-  const processUserData = (userData: any): User => {
+  // ✅ Strong typing instead of `any`
+  const processUserData = (userData: Partial<User>): User => {
     return {
-      id: userData.id?.toString() || `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id:
+        userData.id?.toString() ||
+        `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       name: userData.name || userData.email?.split('@')[0] || 'Unknown User',
       email: userData.email || '',
       picture:
         userData.picture && !/^https?:\/\//i.test(userData.picture)
           ? `https://pulse.great-site.net/Google_signup/uploads/${userData.picture}`
           : userData.picture || '/default-profile.png',
-      reputation: userData.reputation || 0,
-      role: userData.role || 'user',
-      is_verified: userData.is_verified || false,
-      agreed_to_terms: userData.agreed_to_terms || false,
+      reputation: userData.reputation ?? 0,
+      role: userData.role ?? 'user',
+      is_verified: userData.is_verified ?? false,
+      agreed_to_terms: userData.agreed_to_terms ?? false,
       google_id: userData.google_id,
       token: userData.token,
     }
   }
 
-  const fetchUser = async () => {
+  const login = (userData: User) => {
+    const processedUser = processUserData(userData)
+    setUser(processedUser)
+    localStorage.setItem('userData', JSON.stringify(processedUser))
+  }
+
+  // ✅ Wrapped fetchUser in useCallback
+  const fetchUser = useCallback(async () => {
     try {
       console.log('Attempting to fetch user data...')
 
-      const res = await fetch('https://pulse.great-site.net/Google_signup/get_user.php', {
+      const res = await fetch('/api/get-user', {
         method: 'GET',
-        mode: 'cors', // ✅ important for cross-origin requests
-        credentials: 'include', // ✅ send cookies / session
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        },
+        credentials: 'include',
       })
 
       console.log('Response status:', res.status)
@@ -79,16 +84,12 @@ export function UserProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`)
-      }
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`)
 
       const userData = await res.json()
       console.log('Raw user data from server:', userData)
 
-      if (userData.error) {
-        throw new Error(userData.error)
-      }
+      if (userData.error) throw new Error(userData.error)
 
       const processedUser = processUserData(userData)
       console.log('Processed user data:', processedUser)
@@ -101,7 +102,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       try {
         const storedUser = localStorage.getItem('userData')
         if (storedUser) {
-          const parsedUser = JSON.parse(storedUser)
+          const parsedUser: User = JSON.parse(storedUser)
           console.log('Using fallback user data from localStorage')
           setUser(parsedUser)
         } else {
@@ -114,7 +115,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   const updateUserReputation = (points: number) => {
     if (user) {
@@ -135,7 +136,12 @@ export function UserProvider({ children }: { children: ReactNode }) {
       document.cookie.split(';').forEach((c) => {
         document.cookie = c
           .replace(/^ +/, '')
-          .replace(/=.*/, '=;expires=' + new Date().toUTCString() + ';path=/;domain=.great-site.net')
+          .replace(
+            /=.*/,
+            '=;expires=' +
+              new Date().toUTCString() +
+              ';path=/;domain=.great-site.net'
+          )
       })
 
       await fetch('https://pulse.great-site.net/Google_signup/logout.php', {
@@ -152,16 +158,17 @@ export function UserProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    const handleUserVerified = (event: CustomEvent) => {
-      console.log('User verified event received:', event.detail)
-      const processedUser = processUserData(event.detail)
+    const handleUserVerified = (event: Event) => {
+      const customEvent = event as CustomEvent<User>
+      console.log('User verified event received:', customEvent.detail)
+      const processedUser = processUserData(customEvent.detail)
       setUser(processedUser)
       localStorage.setItem('userData', JSON.stringify(processedUser))
     }
 
-    window.addEventListener('userVerified', handleUserVerified as EventListener)
+    window.addEventListener('userVerified', handleUserVerified)
     return () => {
-      window.removeEventListener('userVerified', handleUserVerified as EventListener)
+      window.removeEventListener('userVerified', handleUserVerified)
     }
   }, [])
 
@@ -169,7 +176,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     const storedUser = localStorage.getItem('userData')
     if (storedUser) {
       try {
-        const parsedUser = JSON.parse(storedUser)
+        const parsedUser: User = JSON.parse(storedUser)
         setUser(parsedUser)
         setLoading(false)
         console.log('User data loaded from localStorage')
@@ -179,7 +186,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       }
     }
     fetchUser()
-  }, [])
+  }, [fetchUser]) // ✅ safe now because fetchUser is memoized
 
   return (
     <UserContext.Provider

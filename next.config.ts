@@ -1,31 +1,33 @@
-const securityHeaders = [
+import type { NextConfig } from 'next'
+
+const securityHeaders: { key: string; value: string }[] = [
   {
     key: 'X-DNS-Prefetch-Control',
-    value: 'on'
+    value: 'on',
   },
   {
     key: 'Strict-Transport-Security',
-    value: 'max-age=63072000; includeSubDomains; preload'
+    value: 'max-age=63072000; includeSubDomains; preload',
   },
   {
     key: 'X-XSS-Protection',
-    value: '1; mode=block'
+    value: '1; mode=block',
   },
   {
     key: 'X-Frame-Options',
-    value: 'SAMEORIGIN'
+    value: 'SAMEORIGIN',
   },
   {
     key: 'Permissions-Policy',
-    value: 'camera=(), microphone=(), geolocation=(), interest-cohort=()'
+    value: 'camera=(), microphone=(), geolocation=(), interest-cohort=()',
   },
   {
     key: 'X-Content-Type-Options',
-    value: 'nosniff'
+    value: 'nosniff',
   },
   {
     key: 'Referrer-Policy',
-    value: 'strict-origin-when-cross-origin'
+    value: 'strict-origin-when-cross-origin',
   },
   {
     key: 'Content-Security-Policy',
@@ -37,9 +39,20 @@ const securityHeaders = [
       font-src 'self' *.gstatic.com;
       connect-src 'self' *.google-analytics.com *.analytics.google.com;
       frame-src 'self' *.youtube.com;
-    `.replace(/\s+/g, ' ').trim()
-  }
-] satisfies {
-  key: string;
-  value: string;
-}[];
+    `.replace(/\s+/g, ' ').trim(),
+  },
+]
+
+const nextConfig: NextConfig = {
+  reactStrictMode: true,
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: securityHeaders,
+      },
+    ]
+  },
+}
+
+export default nextConfig
