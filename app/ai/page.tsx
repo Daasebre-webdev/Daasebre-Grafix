@@ -46,7 +46,7 @@ export default function AIGenerator() {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('http://localhost/Google_signup/index.php')
+      router.push('https://pulse.great-site.net/Google_signup/index.php')
     }
   }, [user, loading, router])
 
@@ -141,7 +141,7 @@ const saveGeneratedProjects = (projects: Project[]) => {
             src={
               user.picture.startsWith('http')
                 ? user.picture
-                : `http://localhost/Google_signup/${user.picture}`
+                : `https://pulse.great-site.net/Google_signup/${user.picture}`
             }
             alt="User profile"
             className={styles["user-avatar"]}

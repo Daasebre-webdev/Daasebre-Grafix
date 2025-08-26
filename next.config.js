@@ -8,7 +8,7 @@ const nextConfig = {
       },
       {
         protocol: 'https',
-        hostname: 'your-domain.epizy.com',
+        hostname: 'pulse.great-site.net',
         pathname: '/Google_signup/uploads/**',
       },
     ],

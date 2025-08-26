@@ -28,7 +28,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   const fetchUser = async () => {
     try {
-      const response = await fetch('http://localhost/Google_signup/get_user.php', {
+      const response = await fetch('https://pulse.great-site.net/Google_signup/get_user.php', {
         credentials: 'include',
       })
 
@@ -48,7 +48,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       // Ensure picture is a full URL for Next.js Image
       if (userData.picture) {
         if (!/^https?:\/\//i.test(userData.picture)) {
-          userData.picture = `http://localhost/Google_signup/uploads/${userData.picture}`
+          userData.picture = `https://pulse.great-site.net/Google_signup/uploads/${userData.picture}`
         }
       } else {
         userData.picture = '/default-profile.png'
@@ -97,7 +97,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       });
       
       // Call server logout
-      await fetch('http://localhost/Google_signup/logout.php', {
+      await fetch('https://pulse.great-site.net/Google_signup/logout.php', {
         method: 'POST',
         credentials: 'include',
       })

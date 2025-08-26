@@ -461,7 +461,7 @@ const sortedProjects = useMemo(() => {
       .slice(0, showAllQA ? qas.length : 3);
   }, [qas, showAllQA]);
 
-  const googleLoginUrl = 'http://localhost/Google_signup/index.php';
+  const googleLoginUrl = 'https://pulse.great-site.net/Google_signup/index.php';
 
   return (
     <>

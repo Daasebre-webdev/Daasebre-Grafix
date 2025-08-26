@@ -28,7 +28,7 @@ export default function TermsOfService() {
             src={
               user.picture.startsWith('http')
                 ? user.picture
-                : `http://localhost/Google_signup/${user.picture}`
+                : `https://pulse.great-site.net/Google_signup/${user.picture}`
             }
             alt="User profile"
             className="user-avatar"
