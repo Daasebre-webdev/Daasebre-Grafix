@@ -168,11 +168,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
             if (success) {
               router.push('/dashboard');
             } else {
-              router.push('/login');
+              router.push('/');
             }
           });
         } else {
-          router.push('/login');
+          router.push('/');
         }
       }
     };
