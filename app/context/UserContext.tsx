@@ -69,44 +69,28 @@ export function UserProvider({ children }: { children: ReactNode }) {
         credentials: 'include',
       })
 
-      if (res.status === 401) {
-        localStorage.removeItem('userData')
+      if (!res.ok || res.status === 401) {
         setUser(null)
+        localStorage.removeItem('userData')
         return
       }
 
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`)
-
-      const userData = await res.json()
-
-      if (!userData || userData.user === null) {
-        localStorage.removeItem('userData')
+      const data = await res.json()
+      if (!data || !data.user) {
         setUser(null)
+        localStorage.removeItem('userData')
         return
       }
 
-      const processedUser = processUserData(userData.user)
+      const processedUser = processUserData(data.user)
       setUser(processedUser)
       localStorage.setItem('userData', JSON.stringify(processedUser))
     } catch (err) {
       console.error('Fetch user error:', err)
-      // fallback to localStorage
-      try {
-        const storedUser = localStorage.getItem('userData')
-        if (storedUser) {
-          const parsedUser: User = JSON.parse(storedUser)
-          if (parsedUser.token) {
-            setUser(parsedUser)
-          } else {
-            setUser(null)
-            localStorage.removeItem('userData')
-          }
-        } else {
-          setUser(null)
-        }
-      } catch {
-        setUser(null)
-      }
+      // fallback to localStorage only if fetch fails
+      const storedUser = localStorage.getItem('userData')
+      if (storedUser) setUser(JSON.parse(storedUser))
+      else setUser(null)
     } finally {
       setLoading(false)
     }
@@ -122,18 +106,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
-      localStorage.removeItem('userData')
-
-      await fetch(
-        'https://pulse.great-site.net/Google_signup/logout.php',
-        {
-          method: 'POST',
-          credentials: 'include', // sends __test cookie
-        }
-      )
+      await fetch('https://pulse.great-site.net/Google_signup/logout.php', {
+        method: 'POST',
+        credentials: 'include',
+      })
     } catch (error) {
       console.error('Logout error:', error)
     } finally {
+      localStorage.removeItem('userData')
       setUser(null)
       window.location.href =
         'https://pulse.great-site.net/Google_signup/index.php?t=' +
@@ -141,7 +121,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  // Optional: listen to userVerified event
+  // Listen for userVerified event
   useEffect(() => {
     const handleUserVerified = (event: Event) => {
       const customEvent = event as CustomEvent<User>
@@ -160,14 +140,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
     fetchUser()
   }, [fetchUser])
 
-  // Auto-redirect if no user on protected pages
+  // Redirect to login only if loading is finished and user is null
   useEffect(() => {
     if (!loading && !user) {
       const pathname = window.location.pathname
-      if (
-        !pathname.includes('index.php') &&
-        !pathname.includes('Google_signup')
-      ) {
+      if (!pathname.includes('index.php') && !pathname.includes('Google_signup')) {
         window.location.href =
           'https://pulse.great-site.net/Google_signup/index.php'
       }
