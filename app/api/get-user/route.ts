@@ -10,18 +10,23 @@ export async function GET(req: NextRequest) {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
-        // Forward PHP session cookies
-        "Cookie": cookieHeader,
+        "Cookie": cookieHeader, // forward PHP session cookies
       },
-      // Don't use credentials here (server-to-server)
     });
 
-    const data = await res.json();
+    const text = await res.text(); // read raw text first
 
-    // Forward backend response + cookies back to browser
+    let data;
+    try {
+      data = JSON.parse(text); // try to parse JSON
+    } catch {
+      data = { raw: text }; // fallback if backend didn’t send JSON
+    }
+
+    // Forward backend response
     const response = NextResponse.json(data, { status: res.status });
 
-    // Copy PHPSESSID back if InfinityFree sets it
+    // Copy PHPSESSID if backend sets it
     const setCookie = res.headers.get("set-cookie");
     if (setCookie) {
       response.headers.set("set-cookie", setCookie);
@@ -29,6 +34,7 @@ export async function GET(req: NextRequest) {
 
     return response;
   } catch (err) {
+    console.error("Proxy error:", err);
     return NextResponse.json(
       { error: "Proxy request failed", details: String(err) },
       { status: 500 }
