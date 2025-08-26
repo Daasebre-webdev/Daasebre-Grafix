@@ -127,35 +127,30 @@ export function UserProvider({ children }: { children: ReactNode }) {
       localStorage.setItem('userData', JSON.stringify(updatedUser))
     }
   }
+const logout = async () => {
+  try {
+    // Clear local storage
+    localStorage.removeItem('userData');
 
-  const logout = async () => {
-    try {
-      localStorage.removeItem('userData')
-
-      // Clear cookies
-      document.cookie.split(';').forEach((c) => {
-        document.cookie = c
-          .replace(/^ +/, '')
-          .replace(
-            /=.*/,
-            '=;expires=' +
-              new Date().toUTCString() +
-              ';path=/;domain=.great-site.net'
-          )
-      })
-
-      await fetch('https://pulse.great-site.net/Google_signup/logout.php', {
+    // Call PHP logout endpoint to clear token + cookie
+    await fetch(
+      'https://pulse.great-site.net/Google_signup/logout.php',
+      {
         method: 'POST',
-        mode: 'cors',
-        credentials: 'include',
-      })
-    } catch (error) {
-      console.error('Logout error:', error)
-    } finally {
-      setUser(null)
-      window.location.href = '/?t=' + new Date().getTime()
-    }
+        credentials: 'include', // sends __test cookie
+      }
+    );
+  } catch (error) {
+    console.error('Logout error:', error);
+  } finally {
+    // Clear frontend state
+    setUser(null);
+
+    // Redirect user to the PHP login page
+    window.location.href = 'https://pulse.great-site.net/Google_signup/index.php?t=' + new Date().getTime();
   }
+};
+
 
   useEffect(() => {
     const handleUserVerified = (event: Event) => {
