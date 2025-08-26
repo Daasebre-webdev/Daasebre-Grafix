@@ -1,4 +1,3 @@
-// context/UserContext.tsx
 'use client';
 
 import {
@@ -28,7 +27,7 @@ interface UserContextType {
   user: User | null;
   loading: boolean;
   logout: () => void;
-  fetchUser: () => Promise<boolean>; // Updated to Promise<boolean>
+  fetchUser: () => Promise<boolean>;
   updateUserReputation: (points: number) => void;
   login: (userData: User) => void;
 }
@@ -75,26 +74,23 @@ export function UserProvider({ children }: { children: ReactNode }) {
       });
 
       if (!res.ok || res.status === 401) {
-        console.log('[UserContext] Fetch user failed, status:', res.status);
         setUser(null);
-        return false; // Indicate failure
+        return false;
       }
 
       const data = await res.json();
-      console.log('[UserContext] /api/get-user response:', data);
-
       if (!data || !data.user) {
         setUser(null);
-        return false; // Indicate failure
+        return false;
       }
 
       const processedUser = processUserData(data.user);
       setUser(processedUser);
-      return true; // Indicate success
+      return true;
     } catch (err) {
       console.error('[UserContext] Fetch user error:', err);
       setUser(null);
-      return false; // Indicate failure
+      return false;
     } finally {
       setLoading(false);
     }
@@ -102,67 +98,87 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   const updateUserReputation = (points: number) => {
     if (user) {
-      const updatedUser = { ...user, reputation: (user.reputation || 0) + points };
-      setUser(updatedUser);
+      setUser({ ...user, reputation: (user.reputation || 0) + points });
     }
   };
 
   const logout = async () => {
-    try {
-      await fetch('https://pulse.great-site.net/Google_signup/logout.php', {
-        method: 'POST',
-        credentials: 'include',
-      });
-    } catch (error) {
-      console.error('[UserContext] Logout error:', error);
-    } finally {
-      setUser(null);
-      router.push('/');
+  try {
+    // Call backend logout.php
+    const res = await fetch('https://pulse.great-site.net/Google_signup/logout.php', {
+      method: 'POST',
+      credentials: 'include', // send cookies to backend
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!res.ok) {
+      console.error('[UserContext] Backend logout failed', res.status, res.statusText);
+    }
+  } catch (error) {
+    console.error('[UserContext] Logout error:', error);
+  } finally {
+    // Clear frontend user state
+    setUser(null);
+
+    // Clear __test cookie client-side
+    document.cookie = '__test=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; samesite=None; secure;';
+
+    // Redirect to login safely
+    router.push('/login');
+  }
+};
+
+
+ useEffect(() => {
+  const attemptFetchUser = async () => {
+    let retries = 5;
+    let success = false;
+    while (retries > 0 && !success) {
+      success = await fetchUser();
+      if (success) break;
+      retries--;
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    if (!success) {
+      router.push('/login');
     }
   };
+  attemptFetchUser();
+}, [fetchUser, router]);
 
-  // Fetch user on mount with retries
-  useEffect(() => {
-    const attemptFetchUser = async () => {
-      let retries = 5;
-      while (retries > 0) {
-        const success = await fetchUser();
-        if (success) break;
-        retries--;
-        console.log(`[UserContext] Retrying fetchUser, attempts left: ${retries}`);
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-    };
-    attemptFetchUser();
-  }, [fetchUser]);
-
-  // Redirect to /login for protected routes if not authenticated
-  useEffect(() => {
-    if (!loading && !user) {
-      const pathname = window.location.pathname;
-      if (
-        pathname.startsWith('/dashboard') ||
-        pathname.startsWith('/chat') ||
-        pathname.startsWith('/ai') ||
-        pathname.startsWith('/bookmarks')
-      ) {
-        console.log('[UserContext] No user, redirecting to /login');
-        router.push('/login');
-      }
-    }
-  }, [loading, user, router]);
 
   // Handle userVerified event from PHP
   useEffect(() => {
-    const handleUserVerified = (event: Event) => {
-      const customEvent = event as CustomEvent<User>;
-      const processedUser = processUserData(customEvent.detail);
-      setUser(processedUser);
-      router.push('/dashboard');
+    const handleUserVerified = (event: MessageEvent) => {
+      if (event.origin !== 'https://pulse.great-site.net') return;
+      if (event.data.type === 'userVerified' && event.data.detail) {
+        const processedUser = processUserData(event.data.detail);
+        setUser(processedUser);
+
+        if (event.data.detail.token) {
+          // Set __test cookie for your actual frontend domain
+          document.cookie = `__test=${encodeURIComponent(
+            event.data.detail.token
+          )}; path=/; secure; samesite=None; domain=.pulse-woad-mu.vercel.app`;
+
+          // Validate cookie immediately
+          fetchUser().then((success) => {
+            if (success) {
+              router.push('/dashboard');
+            } else {
+              router.push('/login');
+            }
+          });
+        } else {
+          router.push('/login');
+        }
+      }
     };
-    window.addEventListener('userVerified', handleUserVerified);
-    return () => window.removeEventListener('userVerified', handleUserVerified);
-  }, [router]);
+    window.addEventListener('message', handleUserVerified);
+    return () => window.removeEventListener('message', handleUserVerified);
+  }, [router, fetchUser]);
 
   return (
     <UserContext.Provider

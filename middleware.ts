@@ -20,13 +20,13 @@ export async function middleware(request: NextRequest) {
     });
   }
 
-  // Public routes don't require authentication
-  const publicPaths = ['/', '/login', '/verify'];
-  if (publicPaths.includes(pathname)) {
+  // Public routes that don't require authentication
+  const publicPaths = ['/', '/login', '/verify', '/signup'];
+  if (publicPaths.some((path) => pathname.startsWith(path))) {
     return NextResponse.next();
   }
 
-  // Check session token
+  // Read session token from cookie
   const sessionToken = request.cookies.get('__test')?.value;
   console.log(`[Middleware] Session token: ${sessionToken || 'none'}`);
 
@@ -35,27 +35,33 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  // Verify session with /api/get-user
+  // Verify session token with backend API
   try {
-    const response = await fetch('https://pulse-woad-mu.vercel.app/api/get-user', {
+    const apiResponse = await fetch('https://pulse-woad-mu.vercel.app/api/get-user', {
       method: 'GET',
       headers: {
         Cookie: `__test=${sessionToken}`,
       },
       credentials: 'include',
     });
-    const data = await response.json();
-    console.log('[Middleware] /api/get-user response:', data);
+
+    const data = await apiResponse.json();
+    console.log('[Middleware] /api/get-user response:', { status: apiResponse.status, data });
 
     if (!data.user) {
-      console.log('[Middleware] No valid user, redirecting to /login');
-      return NextResponse.redirect(new URL('/login', request.url));
+      console.log('[Middleware] Invalid session, clearing cookie and redirecting to /login');
+
+      const response = NextResponse.redirect(new URL('/login', request.url));
+      // Clear invalid cookie
+      response.cookies.set('__test', '', { path: '/', maxAge: 0 });
+      return response;
     }
   } catch (error) {
-    console.error('[Middleware] Error fetching user:', error);
+    console.error('[Middleware] Error verifying session:', error);
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
+  // Session token is valid, allow access
   return NextResponse.next();
 }
 

@@ -3,13 +3,14 @@ import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(req: NextRequest) {
   try {
-    // Read __test cookie from request
     const sessionToken = req.cookies.get("__test")?.value;
     console.log(`[/api/get-user] Session token: ${sessionToken || "none"}`);
 
     if (!sessionToken) {
-      console.log("[/api/get-user] No session token, returning null user");
-      return NextResponse.json({ user: null });
+      console.log("[/api/get-user] No session token, clearing cookie and returning null user");
+      const response = NextResponse.json({ user: null });
+      response.cookies.set("__test", "", { path: "/", maxAge: 0 });
+      return response;
     }
 
     // Fetch user from PHP backend
@@ -23,23 +24,27 @@ export async function GET(req: NextRequest) {
 
     if (!res.ok) {
       console.error(`[/api/get-user] Failed to fetch user from PHP: ${res.status} ${res.statusText}`);
-      return NextResponse.json({ user: null });
+      const response = NextResponse.json({ user: null });
+      response.cookies.set("__test", "", { path: "/", maxAge: 0 });
+      return response;
     }
 
     const data = await res.json();
     console.log("[/api/get-user] PHP response:", data);
 
-    // Check for valid user data
-    if (!data || !data.id) {
-      console.log("[/api/get-user] No valid user data, returning null user");
-      return NextResponse.json({ user: null });
+    if (!data || !data.user?.id) {
+      console.log("[/api/get-user] No valid user data, clearing cookie");
+      const response = NextResponse.json({ user: null });
+      response.cookies.set("__test", "", { path: "/", maxAge: 0 });
+      return response;
     }
 
-    // Return user data
-    return NextResponse.json({ user: data });
+    return NextResponse.json({ user: data.user });
   } catch (err) {
     console.error("[/api/get-user] Error:", err);
-    return NextResponse.json({ user: null, error: "Internal server error" });
+    const response = NextResponse.json({ user: null, error: "Internal server error" });
+    response.cookies.set("__test", "", { path: "/", maxAge: 0 });
+    return response;
   }
 }
 
