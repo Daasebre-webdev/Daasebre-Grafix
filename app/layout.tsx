@@ -257,17 +257,7 @@ function AuthNavigation() {
     );
   }
 
-  return (
-    <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-      <Link
-        href="/login"
-        className="hover:text-blue-500 transition-colors opacity-85"
-      >
-        Login
-      </Link>
-    </motion.div>
-  );
-}
+ }
 
 function MobileAuthNavigation({ toggleMenu }: { toggleMenu: () => void }) {
   const { user, loading, fetchUser, logout } = useUser(); // Added logout to destructuring
@@ -387,19 +377,5 @@ function MobileAuthNavigation({ toggleMenu }: { toggleMenu: () => void }) {
     );
   }
 
-  return (
-    <motion.div
-      initial={{ x: -20, opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
-      transition={{ delay: 0.1 }}
-    >
-      <Link
-        href="/login"
-        className="py-3 px-4 hover:bg-gray-100 rounded-lg block transition-colors"
-        onClick={toggleMenu}
-      >
-        Login
-      </Link>
-    </motion.div>
-  );
+  
 }
