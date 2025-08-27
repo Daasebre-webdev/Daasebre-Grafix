@@ -152,7 +152,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const handleUserVerified = (event: MessageEvent) => {
-      console.log('[UserContext] postMessage received:', { origin: event.origin, data: event.data, pathname });
+      console.log('[UserContext] postMessage received:', { origin: event.origin, data: event.data, pathname, timestamp: new Date().toISOString() });
       if (event.origin !== 'https://pulse.great-site.net') {
         console.warn('[UserContext] Invalid origin:', event.origin);
         return;
@@ -165,16 +165,19 @@ export function UserProvider({ children }: { children: ReactNode }) {
           document.cookie = `__test=${encodeURIComponent(event.data.detail.token)}; path=/; secure; samesite=None; domain=.pulse-woad-mu.vercel.app`;
           const cookies = document.cookie.split('; ').find(row => row.startsWith('__test='));
           console.log('[UserContext] Cookie after set:', cookies);
-          fetchUser().then((success) => {
-            console.log('[UserContext] fetchUser result:', success);
-            if (success && pathname !== '/dashboard') {
-              console.log('[UserContext] Redirecting to dashboard');
-              router.push('/dashboard');
-            } else if (!success && pathname !== '/login') {
-              console.log('[UserContext] Redirecting to login');
-              router.push('/login');
-            }
-          });
+          // Delay to ensure cookie is set before fetch
+          setTimeout(() => {
+            fetchUser().then((success) => {
+              console.log('[UserContext] fetchUser result:', success);
+              if (success && pathname !== '/dashboard') {
+                console.log('[UserContext] Redirecting to dashboard');
+                router.push('/dashboard');
+              } else if (!success && pathname !== '/login') {
+                console.log('[UserContext] Redirecting to login');
+                router.push('/login');
+              }
+            });
+          }, 500); // 500ms delay
         } else {
           console.warn('[UserContext] No token in postMessage');
           if (pathname !== '/login') router.push('/login');
@@ -185,17 +188,19 @@ export function UserProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('message', handleUserVerified);
   }, [router, fetchUser, pathname]);
 
-  // Handle token from query parameter (fallback for no window.opener)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get('token');
     if (token && !user) {
       console.log('[UserContext] Handling token from query:', token);
       document.cookie = `__test=${encodeURIComponent(token)}; path=/; secure; samesite=None; domain=.pulse-woad-mu.vercel.app`;
-      fetchUser().then((success) => {
-        if (success && pathname !== '/dashboard') router.push('/dashboard');
-        else if (!success && pathname !== '/login') router.push('/login');
-      });
+      // Delay to ensure cookie is set
+      setTimeout(() => {
+        fetchUser().then((success) => {
+          if (success && pathname !== '/dashboard') router.push('/dashboard');
+          else if (!success && pathname !== '/login') router.push('/login');
+        });
+      }, 500); // 500ms delay
     }
   }, [fetchUser, pathname, user]);
 
