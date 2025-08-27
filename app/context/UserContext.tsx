@@ -107,30 +107,37 @@ export function UserProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    try {
-      console.log('[UserContext] logout: Attempting backend logout');
-      const res = await fetch('https://pulse.great-site.net/Google_signup/logout.php', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+  try {
+    console.log('[UserContext] logout: Attempting backend logout');
+    const res = await fetch('https://pulse.great-site.net/Google_signup/logout.php', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
 
-      if (!res.ok) {
-        console.error('[UserContext] logout: Backend failed', res.status, res.statusText);
-      }
-    } catch (error) {
-      console.error('[UserContext] logout: Error', error);
-    } finally {
+    if (!res.ok) {
+      console.error('[UserContext] logout: Backend failed', res.status, res.statusText);
+      // Fallback logout mechanism
       console.log('[UserContext] logout: Clearing user state');
       setUser(null);
-      // Optional: Clear cookie client-side as a fallback
       document.cookie = '__test=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; samesite=None; secure; domain=.great-site.net';
       router.push('/login');
+    } else {
+      console.log('[UserContext] logout: Backend logout successful');
+      setUser(null);
+      router.push('/login');
     }
-  };
-
+  } catch (error) {
+    console.error('[UserContext] logout: Error', error);
+    // Fallback logout mechanism
+    console.log('[UserContext] logout: Clearing user state');
+    setUser(null);
+    document.cookie = '__test=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; samesite=None; secure; domain=.great-site.net';
+    router.push('/login');
+  }
+};
   useEffect(() => {
     const attemptFetchUser = async () => {
       console.log('[UserContext] attemptFetchUser: Starting', { pathname });
