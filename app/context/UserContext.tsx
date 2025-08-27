@@ -1,4 +1,4 @@
-'use client';
+'use client'
 
 import {
   createContext,
@@ -7,160 +7,207 @@ import {
   useState,
   ReactNode,
   useCallback,
-} from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+} from 'react'
 
 interface User {
-  id: string;
-  name: string;
-  email: string;
-  picture?: string;
-  token?: string;
-  reputation?: number;
-  role?: string;
-  is_verified?: boolean;
-  agreed_to_terms?: boolean;
-  google_id?: string;
+  id: string
+  name: string
+  email: string
+  picture?: string
+  token?: string
+  reputation?: number
+  role?: string
+  is_verified?: boolean
+  agreed_to_terms?: boolean
+  google_id?: string
 }
 
 interface UserContextType {
-  user: User | null;
-  loading: boolean;
-  logout: () => void;
-  fetchUser: () => Promise<boolean>;
-  updateUserReputation: (points: number) => void;
-  login: (userData: User) => void;
+  user: User | null
+  loading: boolean
+  logout: () => void
+  fetchUser: () => Promise<void>
+  updateUserReputation: (points: number) => void
+  login: (userData: User) => void
 }
 
-const UserContext = createContext<UserContextType | undefined>(undefined);
+const UserContext = createContext<UserContextType | undefined>(undefined)
 
 export function UserProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const router = useRouter();
-  const pathname = usePathname();
+  const [user, setUser] = useState<User | null>(null)
+  const [loading, setLoading] = useState(true)
 
-  const processUserData = (userData: Partial<User>): User => ({
-    id:
-      userData.id?.toString() ||
-      `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-    name: userData.name || userData.email?.split('@')[0] || 'Unknown User',
-    email: userData.email || '',
-    picture:
-      userData.picture && !/^https?:\/\//i.test(userData.picture)
-        ? `https://pulse.great-site.net/Google_signup/uploads/${userData.picture}`
-        : userData.picture || '/default-profile.png',
-    reputation: userData.reputation ?? 0,
-    role: userData.role ?? 'user',
-    is_verified: userData.is_verified ?? false,
-    agreed_to_terms: userData.agreed_to_terms ?? false,
-    google_id: userData.google_id,
-    token: userData.token,
-  });
+  // ✅ Strong typing instead of `any`
+  const processUserData = (userData: Partial<User>): User => {
+    return {
+      id:
+        userData.id?.toString() ||
+        `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      name: userData.name || userData.email?.split('@')[0] || 'Unknown User',
+      email: userData.email || '',
+      picture:
+        userData.picture && !/^https?:\/\//i.test(userData.picture)
+          ? `https://pulse.great-site.net/Google_signup/uploads/${userData.picture}`
+          : userData.picture || '/default-profile.png',
+      reputation: userData.reputation ?? 0,
+      role: userData.role ?? 'user',
+      is_verified: userData.is_verified ?? false,
+      agreed_to_terms: userData.agreed_to_terms ?? false,
+      google_id: userData.google_id,
+      token: userData.token,
+    }
+  }
 
   const login = (userData: User) => {
-    const processedUser = processUserData(userData);
-    setUser(processedUser);
-  };
+    const processedUser = processUserData(userData)
+    setUser(processedUser)
+    localStorage.setItem('userData', JSON.stringify(processedUser))
+  }
 
-  const fetchUser = useCallback(async (): Promise<boolean> => {
-    setLoading(true);
+  // ✅ Wrapped fetchUser in useCallback
+  const fetchUser = useCallback(async () => {
     try {
-      console.log('[UserContext] fetchUser: Starting fetch', { pathname });
+      console.log('Attempting to fetch user data...')
+
       const res = await fetch('/api/get-user', {
         method: 'GET',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+      })
 
-      const data = await res.json();
-      console.log('[UserContext] fetchUser: Response', { status: res.status, data });
-      if (!res.ok || res.status === 401 || !data.success) {
-        console.warn('[UserContext] fetchUser: Unauthorized or failed', { status: res.status, success: data.success });
-        setUser(null);
-        return false;
-      }
-      if (!data.user) {
-        console.warn('[UserContext] fetchUser: No user data');
-        setUser(null);
-        return false;
+      console.log('Response status:', res.status)
+
+      if (res.status === 401) {
+        console.log('User not authenticated, clearing local data')
+        localStorage.removeItem('userData')
+        setUser(null)
+        setLoading(false)
+        return
       }
 
-      const processedUser = processUserData(data.user);
-      setUser(processedUser);
-      return true;
-    } catch (err) {
-      console.error('[UserContext] fetchUser: Error', err);
-      setUser(null);
-      return false;
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`)
+
+      const userData = await res.json()
+      console.log('Raw user data from server:', userData)
+
+      if (userData.error) throw new Error(userData.error)
+
+      const processedUser = processUserData(userData)
+      console.log('Processed user data:', processedUser)
+
+      setUser(processedUser)
+      localStorage.setItem('userData', JSON.stringify(processedUser))
+    } catch (error) {
+      console.error('Fetch user error:', error)
+      // fallback to localStorage
+      try {
+        const storedUser = localStorage.getItem('userData')
+        if (storedUser) {
+          const parsedUser: User = JSON.parse(storedUser)
+          console.log('Using fallback user data from localStorage')
+          setUser(parsedUser)
+        } else {
+          setUser(null)
+        }
+      } catch (localStorageError) {
+        console.error('LocalStorage error:', localStorageError)
+        setUser(null)
+      }
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  }, [pathname]); // Include pathname to reflect route changes in fetch
+  }, [])
 
   const updateUserReputation = (points: number) => {
     if (user) {
-      setUser({ ...user, reputation: (user.reputation || 0) + points });
+      const updatedUser = {
+        ...user,
+        reputation: (user.reputation || 0) + points,
+      }
+      setUser(updatedUser)
+      localStorage.setItem('userData', JSON.stringify(updatedUser))
     }
-  };
+  }
 
   const logout = async () => {
     try {
-      console.log('[UserContext] logout: Attempting backend logout');
-      const res = await fetch('https://pulse.great-site.net/Google_signup/logout.php', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+      localStorage.removeItem('userData')
 
-      if (!res.ok) {
-        console.error('[UserContext] logout: Backend failed', res.status, res.statusText);
-      }
-      console.log('[UserContext] logout: Clearing user state');
-      setUser(null);
-      document.cookie = '__test=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; samesite=None; secure; domain=.great-site.net';
-      router.push('/login');
+      // Clear cookies
+      document.cookie.split(';').forEach((c) => {
+        document.cookie = c
+          .replace(/^ +/, '')
+          .replace(
+            /=.*/,
+            '=;expires=' +
+              new Date().toUTCString() +
+              ';path=/;domain=.great-site.net'
+          )
+      })
+
+      await fetch('https://pulse.great-site.net/Google_signup/logout.php', {
+        method: 'POST',
+        mode: 'cors',
+        credentials: 'include',
+      })
     } catch (error) {
-      console.error('[UserContext] logout: Error', error);
-      console.log('[UserContext] logout: Clearing user state');
-      setUser(null);
-      document.cookie = '__test=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; samesite=None; secure; domain=.great-site.net';
-      router.push('/login');
+      console.error('Logout error:', error)
+    } finally {
+      setUser(null)
+      window.location.href = '/?t=' + new Date().getTime()
     }
-  };
+  }
 
   useEffect(() => {
-    const attemptFetchUser = async () => {
-      console.log('[UserContext] attemptFetchUser: Starting', { pathname });
-      const success = await fetchUser();
-      if (!success && !['/login', '/signup'].includes(pathname)) {
-        console.log('[UserContext] attemptFetchUser: Redirecting to login');
-        router.push('/login');
-      } else if (success && user?.is_verified && pathname === '/login') {
-        console.log('[UserContext] attemptFetchUser: Redirecting verified user to dashboard');
-        router.push('/dashboard');
+    const handleUserVerified = (event: Event) => {
+      const customEvent = event as CustomEvent<User>
+      console.log('User verified event received:', customEvent.detail)
+      const processedUser = processUserData(customEvent.detail)
+      setUser(processedUser)
+      localStorage.setItem('userData', JSON.stringify(processedUser))
+    }
+
+    window.addEventListener('userVerified', handleUserVerified)
+    return () => {
+      window.removeEventListener('userVerified', handleUserVerified)
+    }
+  }, [])
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem('userData')
+    if (storedUser) {
+      try {
+        const parsedUser: User = JSON.parse(storedUser)
+        setUser(parsedUser)
+        setLoading(false)
+        console.log('User data loaded from localStorage')
+      } catch (error) {
+        console.error('Error parsing localStorage user data:', error)
+        localStorage.removeItem('userData')
       }
-    };
-    attemptFetchUser();
-  }, [fetchUser, router, user?.is_verified, pathname]); // Added pathname to dependency array
+    }
+    fetchUser()
+  }, [fetchUser]) // ✅ safe now because fetchUser is memoized
 
   return (
     <UserContext.Provider
-      value={{ user, loading, logout, fetchUser, updateUserReputation, login }}
+      value={{
+        user,
+        loading,
+        logout,
+        fetchUser,
+        updateUserReputation,
+        login,
+      }}
     >
       {children}
     </UserContext.Provider>
-  );
+  )
 }
 
 export function useUser() {
-  const context = useContext(UserContext);
-  if (!context) throw new Error('useUser must be used within a UserProvider');
-  return context;
+  const context = useContext(UserContext)
+  if (!context) throw new Error('useUser must be used within a UserProvider')
+  return context
 }
 
-export default UserContext;
+export default UserContext
