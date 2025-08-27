@@ -1,4 +1,3 @@
-// app/layout.tsx
 "use client";
 import './globals.css';
 import FontProvider from './font-provider';
@@ -27,6 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 function Header() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isMobileView, setIsMobileView] = useState(false);
+  const { loading, fetchUser } = useUser(); // Removed unused 'user' variable
 
   useEffect(() => {
     const checkMobile = () => {
@@ -38,12 +38,23 @@ function Header() {
 
     checkMobile();
     window.addEventListener('resize', checkMobile);
+    fetchUser(); // Fetch user data on mount using the session token
     return () => window.removeEventListener('resize', checkMobile);
-  }, []);
+  }, [fetchUser]);
 
   const toggleMobileMenu = () => {
     setIsMobileMenuOpen(!isMobileMenuOpen);
   };
+
+  if (loading) {
+    return (
+      <header className="flex justify-center items-center p-4 h-16 bg-white shadow-sm fixed w-full z-40">
+        <div className="w-8 h-8 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-500"></div>
+        </div>
+      </header>
+    );
+  }
 
   return (
     <>
@@ -92,65 +103,67 @@ function Header() {
           </Link>
         </div>
 
-        {!isMobileView && (
-          <nav className="flex items-center gap-6 ml-auto mr-16">
+        <nav className="flex items-center gap-6">
+          {isMobileView ? (
+            <motion.button
+              onClick={toggleMobileMenu}
+              className="ml-auto mr-4 text-gray-700 focus:outline-none"
+              aria-label="Toggle menu"
+              whileTap={{ scale: 0.9 }}
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                {isMobileMenuOpen ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                )}
+              </svg>
+            </motion.button>
+          ) : (
             <AuthNavigation />
-          </nav>
-        )}
+          )}
+        </nav>
       </header>
 
       <AnimatePresence>
         {isMobileView && isMobileMenuOpen && (
-          <>
-            <motion.div
-              key="overlay"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="fixed inset-0 z-50 bg-black bg-opacity-50"
-              onClick={toggleMobileMenu}
-            />
-            <motion.div
-              key="menu"
-              initial={{ x: '-100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '-100%' }}
-              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              className="fixed top-0 left-0 w-3/4 h-full bg-white shadow-lg z-50"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="p-4 flex flex-col h-full">
-                <div className="flex justify-between items-center mb-8">
-                  <Link
-                    href="/"
-                    className="flex items-center text-xl font-semibold"
-                    onClick={toggleMobileMenu}
-                  >
-                    <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center mr-2">
-                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-                      </svg>
-                    </div>
-                    Project Pulse
-                  </Link>
-                  <motion.button
-                    onClick={toggleMobileMenu}
-                    className="text-gray-700"
-                    whileTap={{ scale: 0.9 }}
-                  >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          <motion.div
+            key="mobile-menu"
+            initial={{ x: '-100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '-100%' }}
+            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+            className="fixed inset-y-0 left-0 w-3/4 bg-white shadow-lg z-50"
+          >
+            <div className="p-4 flex flex-col h-full">
+              <div className="flex justify-between items-center mb-8">
+                <Link
+                  href="/"
+                  className="flex items-center text-xl font-semibold"
+                  onClick={toggleMobileMenu}
+                >
+                  <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center mr-2">
+                    <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
                     </svg>
-                  </motion.button>
-                </div>
-
-                <nav className="flex flex-col gap-1 flex-grow">
-                  <MobileAuthNavigation toggleMenu={toggleMobileMenu} />
-                </nav>
+                  </div>
+                  Project Pulse
+                </Link>
+                <motion.button
+                  onClick={toggleMobileMenu}
+                  className="text-gray-700"
+                  whileTap={{ scale: 0.9 }}
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </motion.button>
               </div>
-            </motion.div>
-          </>
+              <nav className="flex flex-col gap-1 flex-grow">
+                <MobileAuthNavigation toggleMenu={toggleMobileMenu} />
+              </nav>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -160,14 +173,8 @@ function Header() {
 }
 
 function AuthNavigation() {
-  const { user, loading, fetchUser, logout } = useUser(); // Added logout to destructuring
+  const { user, loading, logout } = useUser();
   const pathname = usePathname();
-
-  useEffect(() => {
-    const handleFetchUser = () => fetchUser();
-    window.addEventListener('fetchUser', handleFetchUser);
-    return () => window.removeEventListener('fetchUser', handleFetchUser);
-  }, [fetchUser]);
 
   if (loading) {
     return (
@@ -246,7 +253,7 @@ function AuthNavigation() {
           <span className="font-medium">{user.name || user.email}</span>
           <motion.button
             className="ml-2 px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 text-sm"
-            onClick={logout} // Now correctly references the logout function
+            onClick={logout}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
@@ -257,17 +264,18 @@ function AuthNavigation() {
     );
   }
 
- }
+  return (
+    <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+      <Link href="https://pulse.great-site.net/Google_signup/index.php" className="hover:text-blue-500 transition-colors opacity-85">
+        Sign Up
+      </Link>
+    </motion.div>
+  );
+}
 
 function MobileAuthNavigation({ toggleMenu }: { toggleMenu: () => void }) {
-  const { user, loading, fetchUser, logout } = useUser(); // Added logout to destructuring
+  const { user, loading, logout } = useUser();
   const pathname = usePathname();
-
-  useEffect(() => {
-    const handleFetchUser = () => fetchUser();
-    window.addEventListener('fetchUser', handleFetchUser);
-    return () => window.removeEventListener('fetchUser', handleFetchUser);
-  }, [fetchUser]);
 
   if (loading) {
     return <div className="w-8 h-8"></div>;
@@ -364,7 +372,7 @@ function MobileAuthNavigation({ toggleMenu }: { toggleMenu: () => void }) {
           <motion.button
             className="w-full py-2 px-4 bg-gray-200 rounded hover:bg-gray-300 text-sm"
             onClick={() => {
-              logout(); // Now correctly references the logout function
+              logout();
               toggleMenu();
             }}
             whileHover={{ scale: 1.02 }}
@@ -377,5 +385,19 @@ function MobileAuthNavigation({ toggleMenu }: { toggleMenu: () => void }) {
     );
   }
 
-  
+  return (
+    <motion.div
+      initial={{ x: -20, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      transition={{ delay: 0.1 }}
+    >
+      <Link
+        href="https://pulse.great-site.net/Google_signup/index.php"
+        className="py-3 px-4 hover:bg-gray-100 rounded-lg block transition-colors"
+        onClick={toggleMenu}
+      >
+        Sign Up
+      </Link>
+    </motion.div>
+  );
 }

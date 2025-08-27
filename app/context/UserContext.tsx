@@ -37,7 +37,6 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
-  // ✅ Strong typing instead of `any`
   const processUserData = (userData: Partial<User>): User => {
     return {
       id:
@@ -64,14 +63,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('userData', JSON.stringify(processedUser))
   }
 
-  // ✅ Wrapped fetchUser in useCallback
   const fetchUser = useCallback(async () => {
+    setLoading(true)
     try {
       console.log('Attempting to fetch user data...')
-
       const res = await fetch('/api/get-user', {
         method: 'GET',
-        credentials: 'include',
+        credentials: 'include', // Sends __test cookie with the request
       })
 
       console.log('Response status:', res.status)
@@ -80,7 +78,6 @@ export function UserProvider({ children }: { children: ReactNode }) {
         console.log('User not authenticated, clearing local data')
         localStorage.removeItem('userData')
         setUser(null)
-        setLoading(false)
         return
       }
 
@@ -98,7 +95,6 @@ export function UserProvider({ children }: { children: ReactNode }) {
       localStorage.setItem('userData', JSON.stringify(processedUser))
     } catch (error) {
       console.error('Fetch user error:', error)
-      // fallback to localStorage
       try {
         const storedUser = localStorage.getItem('userData')
         if (storedUser) {
@@ -127,30 +123,26 @@ export function UserProvider({ children }: { children: ReactNode }) {
       localStorage.setItem('userData', JSON.stringify(updatedUser))
     }
   }
-const logout = async () => {
-  try {
-    // Clear local storage
-    localStorage.removeItem('userData');
 
-    // Call PHP logout endpoint to clear token + cookie
-    await fetch(
-      'https://pulse.great-site.net/Google_signup/logout.php',
-      {
+  const logout = async () => {
+    try {
+      // Clear local storage
+      localStorage.removeItem('userData')
+
+      // Call PHP logout endpoint to clear token and cookie
+      await fetch('https://pulse.great-site.net/Google_signup/logout.php', {
         method: 'POST',
-        credentials: 'include', // sends __test cookie
-      }
-    );
-  } catch (error) {
-    console.error('Logout error:', error);
-  } finally {
-    // Clear frontend state
-    setUser(null);
-
-    // Redirect user to the PHP login page
-    window.location.href = 'https://pulse.great-site.net/Google_signup/index.php?t=' + new Date().getTime();
+        credentials: 'include', // Sends __test cookie for server-side invalidation
+      })
+    } catch (error) {
+      console.error('Logout error:', error)
+    } finally {
+      // Clear frontend state
+      setUser(null)
+      // Redirect to login page with timestamp to bypass cache
+      window.location.href = 'https://pulse.great-site.net/Google_signup/index.php?t=' + new Date().getTime()
+    }
   }
-};
-
 
   useEffect(() => {
     const handleUserVerified = (event: Event) => {
@@ -180,8 +172,8 @@ const logout = async () => {
         localStorage.removeItem('userData')
       }
     }
-    fetchUser()
-  }, [fetchUser]) // ✅ safe now because fetchUser is memoized
+    // Fetch user data only once on mount, relying on the initial call
+  }, []) // Removed fetchUser from dependency array to avoid duplicate calls
 
   return (
     <UserContext.Provider
