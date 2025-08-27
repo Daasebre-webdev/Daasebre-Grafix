@@ -77,12 +77,12 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
       const data = await res.json();
       console.log('[UserContext] fetchUser: Response', { status: res.status, data });
-      if (!res.ok || res.status === 401) {
-        console.warn('[UserContext] fetchUser: Unauthorized or failed', { status: res.status });
+      if (!res.ok || res.status === 401 || !data.success) {
+        console.warn('[UserContext] fetchUser: Unauthorized or failed', { status: res.status, success: data.success });
         setUser(null);
         return false;
       }
-      if (!data || !data.user) {
+      if (!data.user) {
         console.warn('[UserContext] fetchUser: No user data');
         setUser(null);
         return false;
@@ -98,7 +98,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [pathname]);
+  }, [pathname]); // Include pathname to reflect route changes in fetch
 
   const updateUserReputation = (points: number) => {
     if (user) {
@@ -107,48 +107,46 @@ export function UserProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-  try {
-    console.log('[UserContext] logout: Attempting backend logout');
-    const res = await fetch('https://pulse.great-site.net/Google_signup/logout.php', {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
+    try {
+      console.log('[UserContext] logout: Attempting backend logout');
+      const res = await fetch('https://pulse.great-site.net/Google_signup/logout.php', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
 
-    if (!res.ok) {
-      console.error('[UserContext] logout: Backend failed', res.status, res.statusText);
-      // Fallback logout mechanism
+      if (!res.ok) {
+        console.error('[UserContext] logout: Backend failed', res.status, res.statusText);
+      }
       console.log('[UserContext] logout: Clearing user state');
       setUser(null);
       document.cookie = '__test=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; samesite=None; secure; domain=.great-site.net';
       router.push('/login');
-    } else {
-      console.log('[UserContext] logout: Backend logout successful');
+    } catch (error) {
+      console.error('[UserContext] logout: Error', error);
+      console.log('[UserContext] logout: Clearing user state');
       setUser(null);
+      document.cookie = '__test=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; samesite=None; secure; domain=.great-site.net';
       router.push('/login');
     }
-  } catch (error) {
-    console.error('[UserContext] logout: Error', error);
-    // Fallback logout mechanism
-    console.log('[UserContext] logout: Clearing user state');
-    setUser(null);
-    document.cookie = '__test=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; samesite=None; secure; domain=.great-site.net';
-    router.push('/login');
-  }
-};
+  };
+
   useEffect(() => {
     const attemptFetchUser = async () => {
       console.log('[UserContext] attemptFetchUser: Starting', { pathname });
       const success = await fetchUser();
-      if (!success && pathname !== '/login' && pathname !== '/signup') {
+      if (!success && !['/login', '/signup'].includes(pathname)) {
         console.log('[UserContext] attemptFetchUser: Redirecting to login');
         router.push('/login');
+      } else if (success && user?.is_verified && pathname === '/login') {
+        console.log('[UserContext] attemptFetchUser: Redirecting verified user to dashboard');
+        router.push('/dashboard');
       }
     };
     attemptFetchUser();
-  }, [fetchUser, pathname, router]);
+  }, [fetchUser, router, user?.is_verified, pathname]); // Added pathname to dependency array
 
   return (
     <UserContext.Provider

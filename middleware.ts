@@ -4,7 +4,7 @@ import type { NextRequest } from 'next/server';
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  console.log('Middleware: Path', pathname); // Debug
+  console.log('Middleware: Path', pathname);
 
   // Allow public routes
   if (['/', '/login', '/signup'].includes(pathname)) {
@@ -14,7 +14,7 @@ export async function middleware(request: NextRequest) {
 
   // Check __test cookie
   const sessionToken = request.cookies.get('__test')?.value;
-  console.log('Middleware: Session token', sessionToken || 'none'); // Debug
+  console.log('Middleware: Session token', sessionToken || 'none');
   if (!sessionToken) {
     console.log('Middleware: No token, redirecting to /login');
     return NextResponse.redirect(new URL('/login', request.url));
@@ -31,12 +31,13 @@ export async function middleware(request: NextRequest) {
       credentials: 'include',
     });
     const data = await response.json();
-    console.log('Middleware: /api/get-user response', data); // Debug
+    console.log('Middleware: /api/get-user response', data);
 
     if (!data.success || !data.user || !data.user.is_verified) {
-      console.log('Middleware: Invalid or unverified user, redirecting to /login');
+      console.log('Middleware: Invalid or unverified user, redirecting to /login', data);
       return NextResponse.redirect(new URL('/login', request.url));
     }
+    console.log('Middleware: User validated, proceeding');
     return NextResponse.next();
   } catch (err) {
     console.error('Middleware: Error fetching user', err);
