@@ -75,14 +75,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
         },
       });
 
+      const data = await res.json();
+      console.log('[UserContext] fetchUser: Response', { status: res.status, data });
       if (!res.ok || res.status === 401) {
         console.warn('[UserContext] fetchUser: Unauthorized or failed', { status: res.status });
         setUser(null);
         return false;
       }
-
-      const data = await res.json();
-      console.log('[UserContext] fetchUser: Response', data);
       if (!data || !data.user) {
         console.warn('[UserContext] fetchUser: No user data');
         setUser(null);
@@ -124,24 +123,18 @@ export function UserProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error('[UserContext] logout: Error', error);
     } finally {
-      console.log('[UserContext] logout: Clearing user state and cookie');
+      console.log('[UserContext] logout: Clearing user state');
       setUser(null);
-      document.cookie = '__test=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; samesite=None; secure;';
+      // Optional: Clear cookie client-side as a fallback
+      document.cookie = '__test=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; samesite=None; secure; domain=.great-site.net';
       router.push('/login');
     }
   };
 
   useEffect(() => {
     const attemptFetchUser = async () => {
-      let retries = 5;
-      let success = false;
-      while (retries > 0 && !success) {
-        console.log('[UserContext] attemptFetchUser: Retry', { retries });
-        success = await fetchUser();
-        if (success) break;
-        retries--;
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
+      console.log('[UserContext] attemptFetchUser: Starting', { pathname });
+      const success = await fetchUser();
       if (!success && pathname !== '/login' && pathname !== '/signup') {
         console.log('[UserContext] attemptFetchUser: Redirecting to login');
         router.push('/login');
@@ -149,60 +142,6 @@ export function UserProvider({ children }: { children: ReactNode }) {
     };
     attemptFetchUser();
   }, [fetchUser, pathname, router]);
-
-  useEffect(() => {
-    const handleUserVerified = (event: MessageEvent) => {
-      console.log('[UserContext] postMessage received:', { origin: event.origin, data: event.data, pathname, timestamp: new Date().toISOString() });
-      if (event.origin !== 'https://pulse.great-site.net') {
-        console.warn('[UserContext] Invalid origin:', event.origin);
-        return;
-      }
-      if (event.data.type === 'userVerified' && event.data.detail) {
-        const processedUser = processUserData(event.data.detail);
-        setUser(processedUser);
-        if (event.data.detail.token) {
-          console.log('[UserContext] Setting __test cookie:', `__test=${encodeURIComponent(event.data.detail.token)}`);
-          document.cookie = `__test=${encodeURIComponent(event.data.detail.token)}; path=/; secure; samesite=None; domain=.pulse-woad-mu.vercel.app`;
-          const cookies = document.cookie.split('; ').find(row => row.startsWith('__test='));
-          console.log('[UserContext] Cookie after set:', cookies);
-          // Delay to ensure cookie is set before fetch
-          setTimeout(() => {
-            fetchUser().then((success) => {
-              console.log('[UserContext] fetchUser result:', success);
-              if (success && pathname !== '/dashboard') {
-                console.log('[UserContext] Redirecting to dashboard');
-                router.push('/dashboard');
-              } else if (!success && pathname !== '/login') {
-                console.log('[UserContext] Redirecting to login');
-                router.push('/login');
-              }
-            });
-          }, 500); // 500ms delay
-        } else {
-          console.warn('[UserContext] No token in postMessage');
-          if (pathname !== '/login') router.push('/login');
-        }
-      }
-    };
-    window.addEventListener('message', handleUserVerified);
-    return () => window.removeEventListener('message', handleUserVerified);
-  }, [router, fetchUser, pathname]);
-
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
-    if (token && !user) {
-      console.log('[UserContext] Handling token from query:', token);
-      document.cookie = `__test=${encodeURIComponent(token)}; path=/; secure; samesite=None; domain=.pulse-woad-mu.vercel.app`;
-      // Delay to ensure cookie is set
-      setTimeout(() => {
-        fetchUser().then((success) => {
-          if (success && pathname !== '/dashboard') router.push('/dashboard');
-          else if (!success && pathname !== '/login') router.push('/login');
-        });
-      }, 500); // 500ms delay
-    }
-  }, [fetchUser, pathname, user]);
 
   return (
     <UserContext.Provider
