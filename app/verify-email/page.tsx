@@ -11,13 +11,16 @@ export default function VerifyEmail() {
   const [expiresAt, setExpiresAt] = useState<number | null>(null);
 
   useEffect(() => {
-    // Initial fetch to get email and expiration
     fetch('https://pulse.great-site.net/Google_signup/verify_email.php', {
       method: 'GET',
       credentials: 'include',
     })
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        return res.json();
+      })
       .then((data) => {
+        console.log('Initial response:', data); // Debug log
         if (data.success && data.redirect) {
           router.push(data.redirect);
         } else if (data.expires_at) {
@@ -27,8 +30,8 @@ export default function VerifyEmail() {
         }
       })
       .catch((err) => {
-        setError('Failed to initialize verification.');
-        console.error(err);
+        console.error('Fetch error:', err);
+        setError('Failed to initialize verification: ' + (err instanceof Error ? err.message : String(err)));
       });
   }, [router]);
 
@@ -52,7 +55,7 @@ export default function VerifyEmail() {
           });
           const userData = await userResponse.json();
           if (userData.user) {
-            await userContext?.fetchUser(); // Update context
+            await userContext?.fetchUser();
             router.push('/dashboard');
           } else {
             setError('Failed to load user details.');
@@ -62,8 +65,8 @@ export default function VerifyEmail() {
         setError(data.message);
       }
     } catch (err) {
-      setError('An error occurred during verification.');
-      console.error(err);
+      console.error('Verification error:', err);
+      setError('An error occurred during verification: ' + (err instanceof Error ? err.message : String(err)));
     }
   };
 
@@ -83,8 +86,8 @@ export default function VerifyEmail() {
         setError(data.message);
       }
     } catch (err) {
-      setError('Failed to resend code.');
-      console.error(err);
+      console.error('Resend error:', err);
+      setError('Failed to resend code: ' + (err instanceof Error ? err.message : String(err)));
     }
   };
 
