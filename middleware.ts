@@ -32,8 +32,9 @@ export async function middleware(request: NextRequest) {
     });
     const data = await response.json();
     console.log('Middleware: /api/get-user response', data); // Debug
-    if (!data.user) {
-      console.log('Middleware: Invalid token, redirecting to /login');
+
+    if (!data.success || !data.user || !data.user.is_verified) {
+      console.log('Middleware: Invalid or unverified user, redirecting to /login');
       return NextResponse.redirect(new URL('/login', request.url));
     }
     return NextResponse.next();
