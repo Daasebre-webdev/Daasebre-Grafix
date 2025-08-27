@@ -1,50 +1,25 @@
 // middleware.ts
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
 
-export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-  console.log('Middleware: Path', pathname);
-
-  // Allow public routes
-  if (['/', '/login', '/signup'].includes(pathname)) {
-    console.log('Middleware: Allowing public route');
-    return NextResponse.next();
-  }
-
-  // Check __test cookie
-  const sessionToken = request.cookies.get('__test')?.value;
-  console.log('Middleware: Session token', sessionToken || 'none');
-  if (!sessionToken) {
-    console.log('Middleware: No token, redirecting to /login');
-    return NextResponse.redirect(new URL('/login', request.url));
-  }
-
-  // Validate token
-  try {
-    const response = await fetch('https://pulse-woad-mu.vercel.app/api/get-user', {
-      method: 'GET',
-      headers: {
-        Cookie: `__test=${sessionToken}`,
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-    });
-    const data = await response.json();
-    console.log('Middleware: /api/get-user response', data);
-
-    if (!data.success || !data.user || !data.user.is_verified) {
-      console.log('Middleware: Invalid or unverified user, redirecting to /login', data);
-      return NextResponse.redirect(new URL('/login', request.url));
-    }
-    console.log('Middleware: User validated, proceeding');
-    return NextResponse.next();
-  } catch (err) {
-    console.error('Middleware: Error fetching user', err);
-    return NextResponse.redirect(new URL('/login', request.url));
-  }
+export function middleware(request: NextRequest) {
+  // 1. First, verify middleware is running
+  console.log(`[Middleware] Path: ${request.nextUrl.pathname}`)
+  
+  // 2. Add a test header to verify it works
+  const response = NextResponse.next()
+  response.headers.set('x-middleware-test', 'success')
+  
+  return response
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/profile/:path*', '/ai/:path*', '/bookmarks/:path*', '/chat/:path*'],
-};
+  matcher: [
+    /*
+     * Match all paths except:
+     * - API routes (/_next/static, /_next/image, /favicon.ico)
+     * - Static files
+     */
+    '/((?!api|_next/static|_next/image|favicon.ico).*)',
+  ],
+}
