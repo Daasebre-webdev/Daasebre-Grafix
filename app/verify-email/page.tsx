@@ -14,7 +14,7 @@ export default function VerifyEmail() {
   useEffect(() => {
     const initializeVerification = async () => {
       try {
-        const res = await fetch("http://localhost/Project_pulse/verify_email.php", {
+        const res = await fetch("https://pulse.great-site.net/Google_signup/verify_email.php", {
           method: "POST",
           credentials: "include",
         });
@@ -73,7 +73,7 @@ export default function VerifyEmail() {
     }
 
     try {
-      const res = await fetch("http://localhost/Project_pulse/verify_email.php", {
+      const res = await fetch("https://pulse.great-site.net/Google_signup/verify_email.php", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: `code=${enteredCode}`,
@@ -91,12 +91,14 @@ export default function VerifyEmail() {
     }
   };
 
-  // Resend code
+  // Resend code - UPDATED
   const handleResend = async () => {
     try {
-      const res = await fetch("http://localhost/Project_pulse/resend_code.php", {
+      const res = await fetch("https://pulse.great-site.net/Google_signup/verify_email.php", {
         method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
         credentials: "include",
+        body: new URLSearchParams({ resend: 'true' })
       });
 
       const data = await res.json();
@@ -104,6 +106,15 @@ export default function VerifyEmail() {
         setTimeLeft(180);
         setCanResend(false);
         setError(null);
+        
+        // Show success message with SweetAlert2
+        Swal.fire({
+          icon: 'success',
+          title: 'Code Resent',
+          text: 'Check your email inbox for the new code.',
+          confirmButtonColor: '#28a745',
+          customClass: { popup: 'text-sm' }
+        });
       } else {
         setError(data.message || "Failed to resend code.");
       }
@@ -115,23 +126,24 @@ export default function VerifyEmail() {
   // Show Terms with SweetAlert2
   const handleShowTerms = () => {
     Swal.fire({
-      title:
-        '<div style="font-size: 24px; font-weight: bold; color: #1f2937; margin-bottom: 20px;">Terms of Service</div>',
-      html: `
-        <div style="text-align: left; max-height: 60vh; overflow-y: auto; font-size: 14px; line-height: 1.6; color: #374151;">
-          <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-            <i class="fas fa-history" style="margin-right: 8px;"></i>
-            <strong>Last Updated:</strong> ${new Date().toLocaleDateString()}
-          </div>
-          <p>Welcome to Project Pulse! By using our services, you agree to the following terms and conditions:</p>
-          <ul style="margin: 10px 0; padding-left: 20px;">
-            <li>✅ Respect intellectual property rights.</li>
-            <li>✅ Do not share your verification codes with anyone.</li>
-            <li>✅ Accounts must only be used for academic purposes.</li>
-            <li>✅ Violation of terms may lead to account suspension.</li>
-          </ul>
-          <p>For more details, visit our <a href="/privacy-policy" style="color: #2563eb;">Privacy Policy</a>.</p>
-        </div>
+     title: 'Terms and Conditions',
+                html: `
+                    <div style="text-align: left; max-height: 60vh; overflow-y: auto; font-size: 14px;">
+                        <h3 style="font-size: 1.1em; margin-bottom: 0.5rem;">Project Pulse Terms of Service</h3>
+                        <p style="margin-bottom: 1rem;">Last Updated: ${new Date().toLocaleDateString()}</p>
+                        <h4 style="font-size: 1em; margin-bottom: 0.5rem;">1. Acceptance of Terms</h4>
+                        <p style="margin-bottom: 1rem;">By using Project Pulse, you agree to these terms and our Privacy Policy.</p>
+                        <h4 style="font-size: 1em; margin-bottom: 0.5rem;">2. User Responsibilities</h4>
+                        <ul style="padding-left: 1.5rem; margin-bottom: 1rem;">
+                            <li style="margin-bottom: 0.5rem;">You must provide accurate registration information</li>
+                            <li style="margin-bottom: 0.5rem;">You are responsible for maintaining the confidentiality of your account</li>
+                            <li>You agree to use the service for lawful purposes only</li>
+                        </ul>
+                        <h4 style="font-size: 1em; margin-bottom: 0.5rem;">3. Intellectual Property</h4>
+                        <p style="margin-bottom: 1rem;">All content and trademarks are property of Project Pulse.</p>
+                        <h4 style="font-size: 1em; margin-bottom: 0.5rem;">4. Limitation of Liability</h4>
+                        <p>Project Pulse is not liable for any indirect, incidental, or consequential damages.</p>
+                    </div>
       `,
       width: "800px",
       padding: "20px",
