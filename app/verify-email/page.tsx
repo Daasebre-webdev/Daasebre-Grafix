@@ -4,7 +4,7 @@ import Swal from "sweetalert2";
 
 export default function VerifyEmail() {
   const [code, setCode] = useState<string[]>(Array(6).fill(""));
-  const [timeLeft, setTimeLeft] = useState<number>(180);
+  const [timeLeft, setTimeLeft] = useState<number>(120); // Adjusted to 2 minutes
   const [canResend, setCanResend] = useState<boolean>(false);
   const [email, setEmail] = useState<string>("your email");
   const [error, setError] = useState<string | null>(null);
@@ -15,20 +15,28 @@ export default function VerifyEmail() {
     const initializeVerification = async () => {
       try {
         const res = await fetch("https://pulse.great-site.net/Google_signup/verify_email.php", {
-          method: "POST",
+          method: "GET",
           credentials: "include",
         });
 
-        if (res.ok) {
-          const data = await res.json();
-          if (data.email) {
-            setEmail(data.email);
-          }
-        } else {
-          setError("Failed to fetch verification email. Please try again.");
+        if (!res.ok) {
+          throw new Error(`HTTP error! Status: ${res.status}`);
         }
-      } catch {
-        setError("Failed to connect to the server. Please check your network.");
+
+        const data = await res.json();
+        if (data.email) {
+          setEmail(data.email);
+          setTimeLeft(data.expires_at ? data.expires_at - Math.floor(Date.now() / 1000) : 120);
+        } else {
+          setError("No email found for verification.");
+        }
+      } catch (err) {
+        console.error("Initialization error:", err);
+        setError(
+          err instanceof Error
+            ? `Failed to connect to the server. Please check your network. Details: ${err.message}`
+            : "Failed to connect to the server. Please check your network."
+        );
       }
     };
 
@@ -76,74 +84,110 @@ export default function VerifyEmail() {
       const res = await fetch("https://pulse.great-site.net/Google_signup/verify_email.php", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: `code=${enteredCode}`,
+        body: `code=${enteredCode}&agreed_to_terms=true`, // Added terms agreement
         credentials: "include",
       });
 
+      if (!res.ok) {
+        throw new Error(`HTTP error! Status: ${res.status}`);
+      }
+
       const data = await res.json();
       if (data.success) {
-        window.location.href = "/dashboard";
+        // Store JWT in local storage
+        if (data.jwt) {
+          localStorage.setItem("jwt_token", data.jwt);
+          // Optional: Decode JWT client-side for immediate use (demo purposes)
+          const userData = decodeJWT(data.jwt);
+          if (userData) {
+            console.log("Decoded user data:", userData); // Log or use in context
+          }
+        }
+        Swal.fire({
+          icon: "success",
+          title: "Verification Successful",
+          text: "Redirecting to dashboard...",
+          confirmButtonColor: "#28a745",
+          timer: 2000,
+          willClose: () => {
+            window.location.href = data.redirect || "/dashboard";
+          },
+        });
       } else {
         setError(data.message || "Invalid or expired code.");
       }
-    } catch {
-      setError("An error occurred during verification.");
+    } catch (err) {
+      console.error("Verification error:", err);
+      setError(
+        err instanceof Error
+          ? `An error occurred during verification. Details: ${err.message}`
+          : "An error occurred during verification."
+      );
     }
   };
 
-  // Resend code - UPDATED
+  // Resend code
   const handleResend = async () => {
+    if (!canResend) return;
+
     try {
       const res = await fetch("https://pulse.great-site.net/Google_signup/verify_email.php", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         credentials: "include",
-        body: new URLSearchParams({ resend: 'true' })
+        body: new URLSearchParams({ resend: "true" }),
       });
+
+      if (!res.ok) {
+        throw new Error(`HTTP error! Status: ${res.status}`);
+      }
 
       const data = await res.json();
       if (data.success) {
-        setTimeLeft(180);
+        setTimeLeft(120);
         setCanResend(false);
         setError(null);
-        
-        // Show success message with SweetAlert2
         Swal.fire({
-          icon: 'success',
-          title: 'Code Resent',
-          text: 'Check your email inbox for the new code.',
-          confirmButtonColor: '#28a745',
-          customClass: { popup: 'text-sm' }
+          icon: "success",
+          title: "Code Resent",
+          text: "Check your email inbox for the new code.",
+          confirmButtonColor: "#28a745",
+          customClass: { popup: "text-sm" },
         });
       } else {
         setError(data.message || "Failed to resend code.");
       }
-    } catch {
-      setError("Network error while resending code.");
+    } catch (err) {
+      console.error("Resend error:", err);
+      setError(
+        err instanceof Error
+          ? `Network error while resending code. Details: ${err.message}`
+          : "Network error while resending code."
+      );
     }
   };
 
   // Show Terms with SweetAlert2
   const handleShowTerms = () => {
     Swal.fire({
-     title: 'Terms and Conditions',
-                html: `
-                    <div style="text-align: left; max-height: 60vh; overflow-y: auto; font-size: 14px;">
-                        <h3 style="font-size: 1.1em; margin-bottom: 0.5rem;">Project Pulse Terms of Service</h3>
-                        <p style="margin-bottom: 1rem;">Last Updated: ${new Date().toLocaleDateString()}</p>
-                        <h4 style="font-size: 1em; margin-bottom: 0.5rem;">1. Acceptance of Terms</h4>
-                        <p style="margin-bottom: 1rem;">By using Project Pulse, you agree to these terms and our Privacy Policy.</p>
-                        <h4 style="font-size: 1em; margin-bottom: 0.5rem;">2. User Responsibilities</h4>
-                        <ul style="padding-left: 1.5rem; margin-bottom: 1rem;">
-                            <li style="margin-bottom: 0.5rem;">You must provide accurate registration information</li>
-                            <li style="margin-bottom: 0.5rem;">You are responsible for maintaining the confidentiality of your account</li>
-                            <li>You agree to use the service for lawful purposes only</li>
-                        </ul>
-                        <h4 style="font-size: 1em; margin-bottom: 0.5rem;">3. Intellectual Property</h4>
-                        <p style="margin-bottom: 1rem;">All content and trademarks are property of Project Pulse.</p>
-                        <h4 style="font-size: 1em; margin-bottom: 0.5rem;">4. Limitation of Liability</h4>
-                        <p>Project Pulse is not liable for any indirect, incidental, or consequential damages.</p>
-                    </div>
+      title: "Terms and Conditions",
+      html: `
+        <div style="text-align: left; max-height: 60vh; overflow-y: auto; font-size: 14px;">
+          <h3 style="font-size: 1.1em; margin-bottom: 0.5rem;">Project Pulse Terms of Service</h3>
+          <p style="margin-bottom: 1rem;">Last Updated: ${new Date().toLocaleDateString()}</p>
+          <h4 style="font-size: 1em; margin-bottom: 0.5rem;">1. Acceptance of Terms</h4>
+          <p style="margin-bottom: 1rem;">By using Project Pulse, you agree to these terms and our Privacy Policy.</p>
+          <h4 style="font-size: 1em; margin-bottom: 0.5rem;">2. User Responsibilities</h4>
+          <ul style="padding-left: 1.5rem; margin-bottom: 1rem;">
+            <li style="margin-bottom: 0.5rem;">You must provide accurate registration information</li>
+            <li style="margin-bottom: 0.5rem;">You are responsible for maintaining the confidentiality of your account</li>
+            <li>You agree to use the service for lawful purposes only</li>
+          </ul>
+          <h4 style="font-size: 1em; margin-bottom: 0.5rem;">3. Intellectual Property</h4>
+          <p style="margin-bottom: 1rem;">All content and trademarks are property of Project Pulse.</p>
+          <h4 style="font-size: 1em; margin-bottom: 0.5rem;">4. Limitation of Liability</h4>
+          <p>Project Pulse is not liable for any indirect, incidental, or consequential damages.</p>
+        </div>
       `,
       width: "800px",
       padding: "20px",
@@ -164,6 +208,22 @@ export default function VerifyEmail() {
     });
   };
 
+  // Helper function to decode JWT (client-side, for demo; use server-side in production)
+  const decodeJWT = (token: string) => {
+    try {
+      const [, payloadBase64] = token.split(".");
+      const payload = JSON.parse(atob(payloadBase64));
+      return {
+        id: payload.sub,
+        email: payload.email,
+        isVerified: payload.is_verified,
+      };
+    } catch (err) {
+      console.error("JWT decode error:", err);
+      return null;
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-r from-indigo-100 to-blue-200 p-4 sm:p-6">
       <div className="bg-white p-6 sm:p-10 rounded-xl shadow-2xl w-full max-w-md sm:max-w-lg lg:max-w-xl">
@@ -176,12 +236,8 @@ export default function VerifyEmail() {
           <strong>{email}</strong>
         </p>
 
-        {/* Error Message */}
-        {error && (
-          <p className="text-red-500 text-center mb-4">{error}</p>
-        )}
+        {error && <p className="text-red-500 text-center mb-4">{error}</p>}
 
-        {/* Code Inputs */}
         <div className="flex justify-between mb-6">
           {code.map((digit, index) => (
             <input
@@ -199,7 +255,6 @@ export default function VerifyEmail() {
           ))}
         </div>
 
-        {/* Timer + Resend */}
         <div className="text-center mb-6">
           {timeLeft > 0 ? (
             <p className="text-sm text-gray-500">
@@ -220,15 +275,14 @@ export default function VerifyEmail() {
           )}
         </div>
 
-        {/* Verify Button */}
         <button
           onClick={handleVerify}
           className="w-full py-2 px-4 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none"
+          disabled={timeLeft === 0}
         >
           Verify Email
         </button>
 
-        {/* Terms */}
         <p className="mt-6 text-xs sm:text-sm text-gray-500 text-center">
           By verifying, you agree to our{" "}
           <span

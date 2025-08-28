@@ -1,27 +1,44 @@
-import { NextResponse, NextRequest } from 'next/server'; // Import NextRequest
+import { NextResponse, NextRequest } from 'next/server';
+import jwt from 'jsonwebtoken';
 
-export async function GET(request: NextRequest) { // Type the request parameter
-  const sessionToken = request.cookies.get('__test')?.value;
-  if (!sessionToken) {
+export async function GET(request: NextRequest) {
+  // Get JWT from cookies
+  const token = request.cookies.get('jwt_token')?.value;
+  if (!token) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   try {
-    const response = await fetch('https://pulse.great-site.net/Google_signup/check-session.php', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ session_token: sessionToken }),
-      credentials: 'include',
-    });
-
-    const data = await response.json();
-    if (data.success && data.user) {
-      return NextResponse.json({ user: data.user });
-    } else {
-      return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
+    // Verify JWT
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      throw new Error('JWT_SECRET is not defined in .env');
     }
+    const decoded = jwt.verify(token, secret) as {
+      sub: string;
+      email: string;
+      is_verified: boolean;
+      name?: string;
+      picture?: string;
+      google_id?: string;
+    };
+
+    // Construct user object based on decoded JWT payload
+    const user = {
+      id: decoded.sub,
+      email: decoded.email,
+      is_verified: decoded.is_verified,
+      name: decoded.name || decoded.email.split('@')[0] || 'Unknown User',
+      picture: decoded.picture || '/default-profile.png',
+      google_id: decoded.google_id,
+    };
+
+    return NextResponse.json({ user });
   } catch (error) {
     console.error('Error fetching user:', error);
+    if (error instanceof jwt.JsonWebTokenError) {
+      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    }
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }

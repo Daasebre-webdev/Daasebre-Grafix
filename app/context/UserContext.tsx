@@ -8,6 +8,7 @@ import {
   ReactNode,
   useCallback,
 } from 'react'
+import Swal from 'sweetalert2'
 
 interface User {
   id: string
@@ -57,25 +58,31 @@ export function UserProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  // 🔹 Login
   const login = (userData: User) => {
     const processedUser = processUserData(userData)
     setUser(processedUser)
     localStorage.setItem('userData', JSON.stringify(processedUser))
+
+    Swal.fire({
+      icon: 'success',
+      title: 'Welcome 🎉',
+      text: `Hello, ${processedUser.name}!`,
+      timer: 2500,
+      showConfirmButton: false,
+    })
   }
 
+  // 🔹 Fetch User
   const fetchUser = useCallback(async () => {
     setLoading(true)
     try {
-      console.log('Attempting to fetch user data...')
       const res = await fetch('/api/get-user', {
         method: 'GET',
-        credentials: 'include', // Sends __test cookie with the request
+        credentials: 'include',
       })
 
-      console.log('Response status:', res.status)
-
       if (res.status === 401) {
-        console.log('User not authenticated, clearing local data')
         localStorage.removeItem('userData')
         setUser(null)
         return
@@ -84,28 +91,28 @@ export function UserProvider({ children }: { children: ReactNode }) {
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`)
 
       const userData = await res.json()
-      console.log('Raw user data from server:', userData)
-
       if (userData.error) throw new Error(userData.error)
 
       const processedUser = processUserData(userData)
-      console.log('Processed user data:', processedUser)
-
       setUser(processedUser)
       localStorage.setItem('userData', JSON.stringify(processedUser))
-    } catch (error) {
+    } catch (error: unknown) { // Changed from 'any' to 'unknown'
       console.error('Fetch user error:', error)
-      try {
-        const storedUser = localStorage.getItem('userData')
-        if (storedUser) {
-          const parsedUser: User = JSON.parse(storedUser)
-          console.log('Using fallback user data from localStorage')
-          setUser(parsedUser)
-        } else {
-          setUser(null)
+      Swal.fire({
+        icon: 'error',
+        title: 'Oops...',
+        text: 'Could not fetch user data. Using saved data if available.',
+      })
+
+      const storedUser = localStorage.getItem('userData')
+      if (storedUser) {
+        try {
+          setUser(JSON.parse(storedUser))
+        } catch (parseError: unknown) {
+          console.error('Error parsing localStorage user data:', parseError)
+          localStorage.removeItem('userData')
         }
-      } catch (localStorageError) {
-        console.error('LocalStorage error:', localStorageError)
+      } else {
         setUser(null)
       }
     } finally {
@@ -113,6 +120,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // 🔹 Update Reputation
   const updateUserReputation = (points: number) => {
     if (user) {
       const updatedUser = {
@@ -121,36 +129,73 @@ export function UserProvider({ children }: { children: ReactNode }) {
       }
       setUser(updatedUser)
       localStorage.setItem('userData', JSON.stringify(updatedUser))
-    }
-  }
 
-  const logout = async () => {
-    try {
-      // Clear local storage
-      localStorage.removeItem('userData')
-
-      // Call PHP logout endpoint to clear token and cookie
-      await fetch('https://pulse.great-site.net/Google_signup/logout.php', {
-        method: 'POST',
-        credentials: 'include', // Sends __test cookie for server-side invalidation
+      Swal.fire({
+        icon: 'success',
+        title: 'Reputation Updated ✅',
+        text: `You gained ${points} points!`,
+        timer: 2000,
+        showConfirmButton: false,
       })
-    } catch (error) {
-      console.error('Logout error:', error)
-    } finally {
-      // Clear frontend state
-      setUser(null)
-      // Redirect to login page with timestamp to bypass cache
-      window.location.href = 'https://pulse.great-site.net/Google_signup/index.php?t=' + new Date().getTime()
     }
   }
 
+  // 🔹 Logout
+  const logout = async () => {
+    Swal.fire({
+      title: 'Are you sure?',
+      text: 'You will be logged out.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, logout',
+    }).then(async (result) => {
+      if (result.isConfirmed) {
+        try {
+          localStorage.removeItem('userData')
+
+          await fetch('https://pulse.great-site.net/Google_signup/logout.php', {
+            method: 'POST',
+            credentials: 'include',
+          })
+
+          Swal.fire({
+            icon: 'success',
+            title: 'Logged out 👋',
+            timer: 2000,
+            showConfirmButton: false,
+          })
+        } catch (error: unknown) { // Changed from implicit 'any'
+          console.error('Logout error:', error)
+          Swal.fire({
+            icon: 'error',
+            title: 'Logout failed ❌',
+            text: 'Please try again.',
+          })
+        } finally {
+          setUser(null)
+          window.location.href =
+            'https://pulse.great-site.net/Google_signup/index.php?t=' +
+            new Date().getTime()
+        }
+      }
+    })
+  }
+
+  // 🔹 Listen for email verification events
   useEffect(() => {
     const handleUserVerified = (event: Event) => {
       const customEvent = event as CustomEvent<User>
-      console.log('User verified event received:', customEvent.detail)
       const processedUser = processUserData(customEvent.detail)
       setUser(processedUser)
       localStorage.setItem('userData', JSON.stringify(processedUser))
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Email Verified 🎉',
+        text: 'Your account has been verified successfully!',
+        timer: 2500,
+        showConfirmButton: false,
+      })
     }
 
     window.addEventListener('userVerified', handleUserVerified)
@@ -159,6 +204,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // 🔹 Load from localStorage
   useEffect(() => {
     const storedUser = localStorage.getItem('userData')
     if (storedUser) {
@@ -166,14 +212,12 @@ export function UserProvider({ children }: { children: ReactNode }) {
         const parsedUser: User = JSON.parse(storedUser)
         setUser(parsedUser)
         setLoading(false)
-        console.log('User data loaded from localStorage')
-      } catch (error) {
+      } catch (error: unknown) { // Changed from implicit 'any'
         console.error('Error parsing localStorage user data:', error)
         localStorage.removeItem('userData')
       }
     }
-    // Fetch user data only once on mount, relying on the initial call
-  }, []) // Removed fetchUser from dependency array to avoid duplicate calls
+  }, [])
 
   return (
     <UserContext.Provider

@@ -1,16 +1,44 @@
 // middleware.ts
-import { NextResponse } from 'next/server'
-import type { NextRequest } from 'next/server'
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import jwt from "jsonwebtoken";
 
 export function middleware(request: NextRequest) {
-  // 1. First, verify middleware is running
-  console.log(`[Middleware] Path: ${request.nextUrl.pathname}`)
-  
-  // 2. Add a test header to verify it works
-  const response = NextResponse.next()
-  response.headers.set('x-middleware-test', 'success')
-  
-  return response
+  // 1. Verify middleware is running
+  console.log(`[Middleware] Path: ${request.nextUrl.pathname}`);
+
+  // 2. Add a test header
+  const response = NextResponse.next();
+  response.headers.set("x-middleware-test", "success");
+
+  // 3. Check if the path is public
+  const publicPaths = ["/", "/login", "/verify-email"];
+  const path = request.nextUrl.pathname;
+
+  if (publicPaths.includes(path)) {
+    return response;
+  }
+
+  // 4. Get JWT from cookies
+  const token = request.cookies.get("jwt_token")?.value;
+
+  if (!token) {
+    console.log("[Middleware] No token found, redirecting to login");
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
+
+  try {
+    // 5. Verify JWT
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      throw new Error("JWT_SECRET is not defined in .env");
+    }
+    jwt.verify(token, secret);
+    return response;
+  } catch (err) {
+    console.error("[Middleware] Invalid token:", err);
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
 }
 
 export const config = {
@@ -19,7 +47,9 @@ export const config = {
      * Match all paths except:
      * - API routes (/_next/static, /_next/image, /favicon.ico)
      * - Static files
+     * - Public paths (e.g., login, verify-email)
      */
-    '/((?!api|_next/static|_next/image|favicon.ico).*)',
+    "/((?!api|_next/static|_next/image|favicon.ico|login|verify-email).*)",
   ],
-}
+  runtime: "nodejs", // Explicitly set to Node.js runtime
+};
