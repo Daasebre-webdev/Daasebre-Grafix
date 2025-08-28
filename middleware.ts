@@ -1,9 +1,9 @@
 // middleware.ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import jwt from "jsonwebtoken";
+import { jwtVerify } from "jose"; // Use jose for Edge compatibility
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   // 1. Verify middleware is running
   console.log(`[Middleware] Path: ${request.nextUrl.pathname}`);
 
@@ -28,12 +28,12 @@ export function middleware(request: NextRequest) {
   }
 
   try {
-    // 5. Verify JWT
-    const secret = process.env.JWT_SECRET;
+    // 5. Verify JWT using jose (Edge compatible)
+    const secret = new TextEncoder().encode(process.env.JWT_SECRET);
     if (!secret) {
       throw new Error("JWT_SECRET is not defined in .env");
     }
-    jwt.verify(token, secret);
+    await jwtVerify(token, secret);
     return response;
   } catch (err) {
     console.error("[Middleware] Invalid token:", err);
@@ -51,5 +51,5 @@ export const config = {
      */
     "/((?!api|_next/static|_next/image|favicon.ico|login|verify-email).*)",
   ],
-  runtime: "nodejs", // Explicitly set to Node.js runtime
+  // Remove runtime: "nodejs" - defaults to Edge runtime
 };

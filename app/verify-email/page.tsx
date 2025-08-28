@@ -19,15 +19,44 @@ function VerifyEmailContent() {
   const [error, setError] = useState<string | null>(null)
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
 
-  // Fetch email from localStorage or URL params
+  // 🔹 Fetch verification session from backend on mount
   useEffect(() => {
-    const storedEmail = localStorage.getItem('email_to_verify') || searchParams.get('email') || ''
-    if (storedEmail) {
-      setEmail(storedEmail)
-    } else {
-      setError('No email found for verification.')
+    const fetchVerificationSession = async () => {
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/verify_email.php`, {
+          method: 'GET',
+          credentials: 'include',
+        })
+
+        if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`)
+
+        const data = await res.json()
+        if (data.success) {
+          setEmail(data.email)
+          localStorage.setItem('email_to_verify', data.email)
+
+          if (data.expires_at) {
+            const remaining = Math.max(0, Math.floor(data.expires_at - Date.now() / 1000))
+            setTimeLeft(remaining)
+          }
+        } else {
+          setError(data.message || 'Verification session expired. Please sign up again.')
+          if (data.redirect) router.push(data.redirect)
+        }
+      } catch (err) {
+        console.error('Error fetching verification session:', err)
+        // fallback to localStorage or URL param if backend fails
+        const storedEmail = localStorage.getItem('email_to_verify') || searchParams.get('email') || ''
+        if (storedEmail) {
+          setEmail(storedEmail)
+        } else {
+          setError('No email found for verification.')
+        }
+      }
     }
-  }, [searchParams])
+
+    fetchVerificationSession()
+  }, [router, searchParams])
 
   // Countdown timer
   useEffect(() => {
