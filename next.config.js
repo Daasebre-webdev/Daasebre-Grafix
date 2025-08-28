@@ -12,7 +12,7 @@ const nextConfig = {
         pathname: '/Google_signup/uploads/**',
       },
     ],
-    unoptimized: process.env.NODE_ENV === 'production', // Optional: disable optimization in production if needed
+    unoptimized: process.env.NODE_ENV === 'production',
   },
   env: {
     API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL,
@@ -24,7 +24,7 @@ const nextConfig = {
         headers: [
           {
             key: 'Access-Control-Allow-Origin',
-            value: 'https://pulse-woad-mu.vercel.app', // must match frontend for cookies
+            value: 'https://pulse-woad-mu.vercel.app',
           },
           { key: 'Access-Control-Allow-Credentials', value: 'true' },
           { key: 'Access-Control-Allow-Methods', value: 'GET, POST, PUT, DELETE, OPTIONS' },
@@ -37,4 +37,4 @@ const nextConfig = {
   reactStrictMode: true,
 };
 
-module.exports = nextConfig;
+export default nextConfig;

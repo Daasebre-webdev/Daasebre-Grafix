@@ -2,8 +2,11 @@ import { NextResponse, NextRequest } from 'next/server';
 import jwt from 'jsonwebtoken';
 
 export async function GET(request: NextRequest) {
-  // Get JWT from cookies
-  const token = request.cookies.get('jwt_token')?.value;
+  // Get JWT from cookies or Authorization header
+  const token = request.cookies.get('jwt_token')?.value || 
+                request.cookies.get('__test')?.value || 
+                request.headers.get('Authorization')?.replace('Bearer ', '');
+
   if (!token) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -23,7 +26,7 @@ export async function GET(request: NextRequest) {
       google_id?: string;
     };
 
-    // Construct user object based on decoded JWT payload
+    // Construct user object
     const user = {
       id: decoded.sub,
       email: decoded.email,

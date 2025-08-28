@@ -36,7 +36,7 @@ const UserContext = createContext<UserContextType | undefined>(undefined)
 
 export function UserProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false) // Start with loading false
 
   const processUserData = (userData: Partial<User>): User => {
     return {
@@ -75,14 +75,25 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   // 🔹 Fetch User
   const fetchUser = useCallback(async () => {
+    console.log('Starting fetchUser...')
     setLoading(true)
     try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => {
+        controller.abort()
+        console.log('Fetch user timed out')
+      }, 5000) // 5s timeout
+
       const res = await fetch('/api/get-user', {
         method: 'GET',
         credentials: 'include',
+        signal: controller.signal,
       })
+      console.log('Fetch user response:', res.status, res.statusText)
+      clearTimeout(timeoutId)
 
       if (res.status === 401) {
+        console.log('401 Unauthorized, clearing user data')
         localStorage.removeItem('userData')
         setUser(null)
         return
@@ -91,13 +102,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`)
 
       const userData = await res.json()
+      console.log('User data:', userData)
       if (userData.error) throw new Error(userData.error)
 
-      const processedUser = processUserData(userData)
+      const processedUser = processUserData(userData.user) // Note: userData.user based on get-user route
       setUser(processedUser)
       localStorage.setItem('userData', JSON.stringify(processedUser))
-    } catch (error: unknown) { // Changed from 'any' to 'unknown'
-      console.error('Fetch user error:', error)
+    } catch (error: unknown) {
+      console.error('Fetch user error:', (error as Error).message)
       Swal.fire({
         icon: 'error',
         title: 'Oops...',
@@ -109,15 +121,31 @@ export function UserProvider({ children }: { children: ReactNode }) {
         try {
           setUser(JSON.parse(storedUser))
         } catch (parseError: unknown) {
-          console.error('Error parsing localStorage user data:', parseError)
+          console.error('Error parsing localStorage user data:', (parseError as Error).message)
           localStorage.removeItem('userData')
         }
       } else {
         setUser(null)
       }
     } finally {
+      console.log('Fetch user complete, loading:', false)
       setLoading(false)
     }
+  }, [])
+
+  // 🔹 Load from localStorage without setting loading
+  useEffect(() => {
+    const storedUser = localStorage.getItem('userData')
+    if (storedUser) {
+      try {
+        const parsedUser: User = JSON.parse(storedUser)
+        setUser(parsedUser)
+      } catch (error: unknown) {
+        console.error('Error parsing localStorage user data:', (error as Error).message)
+        localStorage.removeItem('userData')
+      }
+    }
+    // Do not call fetchUser or set loading here
   }, [])
 
   // 🔹 Update Reputation
@@ -164,8 +192,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
             timer: 2000,
             showConfirmButton: false,
           })
-        } catch (error: unknown) { // Changed from implicit 'any'
-          console.error('Logout error:', error)
+        } catch (error: unknown) {
+          console.error('Logout error:', (error as Error).message)
           Swal.fire({
             icon: 'error',
             title: 'Logout failed ❌',
@@ -174,8 +202,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
         } finally {
           setUser(null)
           window.location.href =
-            'https://pulse.great-site.net/Google_signup/index.php?t=' +
-            new Date().getTime()
+            'https://pulse.great-site.net/Google_signup/index.php?t=' + new Date().getTime()
         }
       }
     })
@@ -201,21 +228,6 @@ export function UserProvider({ children }: { children: ReactNode }) {
     window.addEventListener('userVerified', handleUserVerified)
     return () => {
       window.removeEventListener('userVerified', handleUserVerified)
-    }
-  }, [])
-
-  // 🔹 Load from localStorage
-  useEffect(() => {
-    const storedUser = localStorage.getItem('userData')
-    if (storedUser) {
-      try {
-        const parsedUser: User = JSON.parse(storedUser)
-        setUser(parsedUser)
-        setLoading(false)
-      } catch (error: unknown) { // Changed from implicit 'any'
-        console.error('Error parsing localStorage user data:', error)
-        localStorage.removeItem('userData')
-      }
     }
   }, [])
 
