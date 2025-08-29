@@ -58,89 +58,107 @@ function VerifyEmailContent() {
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [isVerifying, setIsVerifying] = useState<boolean>(false)
   const [initializationFailed, setInitializationFailed] = useState<boolean>(false)
+  const [sessionToken, setSessionToken] = useState<string | null>(null)
   const inputRefs = useRef<(HTMLInputElement | null)[]>(Array(6).fill(null))
 
-  // JWT from localStorage
-  const jwtToken = typeof window !== 'undefined' ? localStorage.getItem('jwt_token') : null
+  // Get tokens from localStorage on component mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const jwt = localStorage.getItem('jwt_token');
+      const session = localStorage.getItem('session_token');
+      
+      if (session) {
+        setSessionToken(session);
+      }
+      
+      // Check if we already have email in localStorage
+      const savedEmail = localStorage.getItem('email_to_verify');
+      if (savedEmail) {
+        setEmail(savedEmail);
+        console.log('Pre-loaded email from localStorage:', savedEmail);
+      } else if (jwt) {
+        // Try to extract email from JWT
+        const decodedToken = decodeJWT(jwt);
+        if (decodedToken && decodedToken.email) {
+          setEmail(decodedToken.email);
+          localStorage.setItem('email_to_verify', decodedToken.email);
+          console.log('Email extracted from JWT:', decodedToken.email);
+        }
+      }
+    }
+  }, [])
 
-  // Initialize - get email from JWT token or session
+  // Initialize - get email from session if not already available
   useEffect(() => {
     const initVerify = async () => {
+      // If we already have an email, no need to initialize
+      if (email) return;
+      
+      // If we don't have a session token, we can't initialize
+      if (!sessionToken) {
+        setInitializationFailed(true);
+        setError('No active session found. Please sign in again.');
+        return;
+      }
+
       try {
-        // First, try to get email from JWT token
-        if (jwtToken) {
-          const decodedToken = decodeJWT(jwtToken);
-          if (decodedToken && decodedToken.email) {
-            setEmail(decodedToken.email);
-            localStorage.setItem('email_to_verify', decodedToken.email);
-            console.log('Email extracted from JWT:', decodedToken.email);
-          }
-        }
+        const apiUrl = 'https://pulse.great-site.net/Google_signup/verify_email.php'
+        
+        console.log('Initializing verification with session token');
+        
+        const response = await fetch(apiUrl, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Authorization': `Bearer ${sessionToken}`,
+          },
+          credentials: 'include',
+        })
 
-        // If we still don't have an email, try the API
-        if (!email) {
-          const apiUrl = 'https://pulse.great-site.net/Google_signup/verify_email.php'
+        console.log('Initialization response status:', response.status);
+
+        if (response.ok) {
+          const data: ApiResponse = await response.json()
+          console.log('Initialization response data:', data);
           
-          console.log('Initializing verification with token:', jwtToken ? 'Available' : 'Not available');
-          
-          const response = await fetch(apiUrl, {
-            method: 'GET',
-            headers: {
-              'Accept': 'application/json',
-              ...(jwtToken ? { Authorization: `Bearer ${jwtToken}` } : {}),
-            },
-            credentials: 'include',
-          })
-
-          console.log('Initialization response status:', response.status);
-
-          if (response.ok) {
-            const data: ApiResponse = await response.json()
-            console.log('Initialization response data:', data);
+          if (data.success) {
+            if (data.redirect) {
+              // Already verified, redirect to dashboard
+              router.push(data.redirect)
+              return
+            }
             
-            if (data.success) {
-              if (data.redirect) {
-                // Already verified, redirect to dashboard
-                router.push(data.redirect)
-                return
-              }
-              
-              if (data.email) {
-                setEmail(data.email)
-                localStorage.setItem('email_to_verify', data.email)
-              }
-              
-              if (data.expires_at) {
-                const remaining = Math.max(0, data.expires_at - Math.floor(Date.now() / 1000))
-                setTimeLeft(remaining)
-                setCanResend(remaining <= 0)
-                localStorage.setItem('verification_expiry', data.expires_at.toString())
-              }
-            } else {
-              setError(data.message || 'Failed to initialize verification')
-              setInitializationFailed(true)
+            if (data.email) {
+              setEmail(data.email)
+              localStorage.setItem('email_to_verify', data.email)
+            }
+            
+            if (data.expires_at) {
+              const remaining = Math.max(0, data.expires_at - Math.floor(Date.now() / 1000))
+              setTimeLeft(remaining)
+              setCanResend(remaining <= 0)
+              localStorage.setItem('verification_expiry', data.expires_at.toString())
             }
           } else {
-            console.error('Initialization failed with status:', response.status);
+            setError(data.message || 'Failed to initialize verification')
             setInitializationFailed(true)
           }
+        } else {
+          console.error('Initialization failed with status:', response.status);
+          setInitializationFailed(true)
+          setError('Failed to connect to verification service')
         }
       } catch (err) {
         console.error('Initialization error:', err)
         setInitializationFailed(true)
+        setError('Network error during initialization')
       }
     }
 
-    // Check if we already have email in localStorage before making API call
-    const savedEmail = localStorage.getItem('email_to_verify');
-    if (savedEmail) {
-      setEmail(savedEmail);
-      console.log('Pre-loaded email from localStorage:', savedEmail);
-    } else {
-      // If no email in localStorage, try to get it from JWT or API
+    if (!email && sessionToken) {
       initVerify()
     }
-  }, [jwtToken, router, email])
+  }, [sessionToken, email, router])
 
   // Countdown timer
   useEffect(() => {
@@ -196,7 +214,7 @@ function VerifyEmailContent() {
     }
   }
 
-  // Verify code - using form data format
+  // Verify code
   const handleVerify = async () => {
     const enteredCode = code.join('')
     if (enteredCode.length !== 6) {
@@ -210,19 +228,20 @@ function VerifyEmailContent() {
     try {
       const apiUrl = 'https://pulse.great-site.net/Google_signup/verify_email.php'
 
-      // Use FormData instead of JSON
-      const formData = new FormData()
-      formData.append('code', enteredCode)
+      // Use URLSearchParams instead of FormData for JSON API
+      const params = new URLSearchParams()
+      params.append('code', enteredCode)
 
       console.log('Sending verification code:', enteredCode)
 
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
           'Accept': 'application/json',
-          ...(jwtToken ? { Authorization: `Bearer ${jwtToken}` } : {}),
+          ...(sessionToken ? { 'Authorization': `Bearer ${sessionToken}` } : {}),
         },
-        body: formData,
+        body: params.toString(),
         credentials: 'include',
       })
 
@@ -289,7 +308,7 @@ function VerifyEmailContent() {
     }
   }
 
-  // Resend code using form data
+  // Resend code
   const handleResend = async () => {
     if (!canResend) return
 
@@ -299,19 +318,20 @@ function VerifyEmailContent() {
     try {
       const apiUrl = 'https://pulse.great-site.net/Google_signup/verify_email.php'
 
-      // Use FormData instead of JSON
-      const formData = new FormData()
-      formData.append('resend', 'true')
+      // Use URLSearchParams instead of FormData for JSON API
+      const params = new URLSearchParams()
+      params.append('resend', 'true')
 
       console.log('Requesting code resend')
 
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
           'Accept': 'application/json',
-          ...(jwtToken ? { Authorization: `Bearer ${jwtToken}` } : {}),
+          ...(sessionToken ? { 'Authorization': `Bearer ${sessionToken}` } : {}),
         },
-        body: formData,
+        body: params.toString(),
         credentials: 'include',
       })
 
@@ -360,22 +380,26 @@ function VerifyEmailContent() {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-r from-indigo-100 to-blue-200">
         <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md text-center">
           <div className="text-red-500 text-5xl mb-4">⚠️</div>
-          <h2 className="text-xl font-bold text-gray-800 mb-4">Server Unavailable</h2>
+          <h2 className="text-xl font-bold text-gray-800 mb-4">Verification Issue</h2>
           <p className="text-gray-600 mb-6">
-            We&apos;re experiencing technical difficulties. Your account has been created, 
-            but we can&apos;t send a verification code right now.
+            {error || "We're having trouble initializing the verification process."}
           </p>
           <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4 mb-6">
             <p className="text-yellow-700 text-sm">
-              <strong>Note:</strong> Your account has been created successfully. 
-              Please try verifying your email later or contact support.
+              <strong>Note:</strong> Please check if you&apos;re logged in or try refreshing the page.
             </p>
           </div>
           <button
-            onClick={() => router.push('/dashboard')}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700"
+            onClick={() => router.push('/login')}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700 mr-2"
           >
-            Go to Dashboard
+            Go to Login
+          </button>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-gray-600 text-white rounded-md text-sm hover:bg-gray-700"
+          >
+            Refresh Page
           </button>
         </div>
       </div>
