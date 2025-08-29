@@ -65,27 +65,34 @@ function VerifyEmailContent() {
 
         // Try to fetch verification data from backend
         try {
-          const response = await fetch(
-            `https://pulse.great-site.net/Google_signup/verify_email.php?email=${encodeURIComponent(urlEmail)}`,
-            { 
-              method: 'GET',
-              credentials: 'include',
-              headers: {
-                'Accept': 'application/json',
-              }
+          const apiUrl = `https://pulse.great-site.net/Google_signup/verify_email.php?email=${encodeURIComponent(urlEmail)}`
+          console.log('Fetching verification data from:', apiUrl)
+          
+          const response = await fetch(apiUrl, { 
+            method: 'GET',
+            credentials: 'include',
+            headers: {
+              'Accept': 'application/json',
             }
-          )
+          })
+          
+          console.log('Response status:', response.status, response.statusText)
           
           if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`)
           }
 
           const contentType = response.headers.get('content-type')
+          console.log('Response content-type:', contentType)
+          
           if (!contentType || !contentType.includes('application/json')) {
+            const textResponse = await response.text()
+            console.log('Non-JSON response received:', textResponse.substring(0, 200))
             throw new Error('Server returned invalid response format')
           }
           
           const data = await response.json()
+          console.log('Response data:', data)
           
           if (data.success) {
             if (data.expires_at) {
@@ -112,7 +119,7 @@ function VerifyEmailContent() {
           }
         } catch (fetchError) {
           console.error('API fetch error:', fetchError)
-          setError('Connection issue. Please check your internet connection.')
+          setError('Connection issue. Please check your internet connection and try again.')
         }
       } catch (err) {
         console.error('Error initializing verification:', err)
@@ -184,26 +191,34 @@ function VerifyEmailContent() {
     setError(null)
 
     try {
-      // Use FormData instead of JSON to match typical PHP form handling
-      const formData = new FormData()
+      // Use URLSearchParams instead of FormData for better compatibility
+      const formData = new URLSearchParams()
       formData.append('email', email)
       formData.append('code', enteredCode)
       formData.append('agreed_to_terms', 'true')
 
-      const response = await fetch(
-        'https://pulse.great-site.net/Google_signup/verify_email.php',
-        {
-          method: 'POST',
-          credentials: 'include',
-          body: formData,
-        }
-      )
+      const apiUrl = 'https://pulse.great-site.net/Google_signup/verify_email.php'
+      console.log('Verifying code at:', apiUrl)
+      console.log('Request data:', { email, code: enteredCode })
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formData.toString(),
+      })
+
+      console.log('Verification response status:', response.status, response.statusText)
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
 
       const contentType = response.headers.get('content-type')
+      console.log('Response content-type:', contentType)
+      
       if (!contentType || !contentType.includes('application/json')) {
         const textResponse = await response.text()
         console.error('Non-JSON response:', textResponse)
@@ -211,6 +226,7 @@ function VerifyEmailContent() {
       }
 
       const data = await response.json()
+      console.log('Verification response data:', data)
       
       if (data.success) {
         // Store tokens if provided
@@ -246,7 +262,7 @@ function VerifyEmailContent() {
     } catch (err) {
       console.error('Verification error:', err)
       const errorMessage = getErrorMessage(err)
-      setError(`Verification failed: ${errorMessage}. Please check your connection and try again.`)
+      setError(`Verification failed. Please check your connection and try again. Error: ${errorMessage}`)
     } finally {
       setIsVerifying(false)
     }
@@ -260,25 +276,32 @@ function VerifyEmailContent() {
     setError(null)
 
     try {
-      // Use FormData instead of JSON
-      const formData = new FormData()
+      // Use URLSearchParams instead of FormData
+      const formData = new URLSearchParams()
       formData.append('email', email)
       formData.append('resend', 'true')
 
-      const response = await fetch(
-        'https://pulse.great-site.net/Google_signup/verify_email.php',
-        {
-          method: 'POST',
-          credentials: 'include',
-          body: formData,
-        }
-      )
+      const apiUrl = 'https://pulse.great-site.net/Google_signup/verify_email.php'
+      console.log('Resending code to:', apiUrl)
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formData.toString(),
+      })
+
+      console.log('Resend response status:', response.status, response.statusText)
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
 
       const contentType = response.headers.get('content-type')
+      console.log('Response content-type:', contentType)
+      
       if (!contentType || !contentType.includes('application/json')) {
         const textResponse = await response.text()
         console.error('Non-JSON response:', textResponse)
@@ -286,6 +309,7 @@ function VerifyEmailContent() {
       }
 
       const data = await response.json()
+      console.log('Resend response data:', data)
       
       if (data.success) {
         setTimeLeft(120)
@@ -314,6 +338,21 @@ function VerifyEmailContent() {
     }
   }
 
+  // Test connection to backend
+  const testConnection = async () => {
+    try {
+      const response = await fetch('https://pulse.great-site.net/Google_signup/verify_email.php', {
+        method: 'HEAD',
+        credentials: 'include',
+      })
+      console.log('Connection test result:', response.status, response.statusText)
+      return response.ok
+    } catch (error) {
+      console.error('Connection test failed:', error)
+      return false
+    }
+  }
+
   if (isInitializing) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-r from-indigo-100 to-blue-200">
@@ -339,6 +378,18 @@ function VerifyEmailContent() {
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-4">
             <p className="text-red-700 text-sm text-center">{error}</p>
+            <button
+              onClick={() => testConnection().then(success => {
+                if (success) {
+                  setError('Connection test successful. Please try again.')
+                } else {
+                  setError('Connection test failed. Please check your internet connection.')
+                }
+              })}
+              className="text-blue-600 text-xs mt-2 underline"
+            >
+              Test Connection
+            </button>
           </div>
         )}
         
@@ -398,6 +449,25 @@ function VerifyEmailContent() {
         >
           {isVerifying ? 'Verifying...' : 'Verify Email'}
         </button>
+
+        <div className="mt-4 text-center">
+          <button
+            onClick={() => {
+              console.log('Current state:', {
+                email,
+                code: code.join(''),
+                timeLeft,
+                canResend,
+                isLoading,
+                isVerifying
+              })
+              testConnection()
+            }}
+            className="text-xs text-gray-500 underline"
+          >
+            Debug Info
+          </button>
+        </div>
       </div>
     </div>
   )
