@@ -19,43 +19,51 @@ function VerifyEmailContent() {
   const [error, setError] = useState<string | null>(null)
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
 
-  // 🔹 Fetch verification session from backend on mount
+  // 🔹 Fetch verification session from backend
   useEffect(() => {
-    const fetchVerificationSession = async () => {
-      try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/verify_email.php`, {
-          method: 'GET',
-          credentials: 'include',
-        })
+    const urlEmail =
+      searchParams.get('email') || localStorage.getItem('email_to_verify')
 
+    if (!urlEmail) {
+      setError('No email found for verification.')
+      return
+    }
+
+    setEmail(urlEmail)
+    localStorage.setItem('email_to_verify', urlEmail)
+
+    const fetchVerification = async () => {
+      try {
+        const res = await fetch(
+          `${process.env.NEXT_PUBLIC_API_BASE_URL}/verify_email.php?email=${encodeURIComponent(
+            urlEmail
+          )}`,
+          { method: 'GET' }
+        )
         if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`)
 
         const data = await res.json()
         if (data.success) {
-          setEmail(data.email)
-          localStorage.setItem('email_to_verify', data.email)
-
           if (data.expires_at) {
-            const remaining = Math.max(0, Math.floor(data.expires_at - Date.now() / 1000))
+            const remaining = Math.max(
+              0,
+              Math.floor(data.expires_at - Date.now() / 1000)
+            )
             setTimeLeft(remaining)
           }
         } else {
-          setError(data.message || 'Verification session expired. Please sign up again.')
+          setError(
+            data.message || 'Verification session expired. Please sign up again.'
+          )
           if (data.redirect) router.push(data.redirect)
         }
       } catch (err) {
         console.error('Error fetching verification session:', err)
-        // fallback to localStorage or URL param if backend fails
-        const storedEmail = localStorage.getItem('email_to_verify') || searchParams.get('email') || ''
-        if (storedEmail) {
-          setEmail(storedEmail)
-        } else {
-          setError('No email found for verification.')
-        }
+        setError('Could not load verification data.')
       }
     }
 
-    fetchVerificationSession()
+    fetchVerification()
   }, [router, searchParams])
 
   // Countdown timer
@@ -86,7 +94,7 @@ function VerifyEmailContent() {
     }
   }
 
-  // Submit verification code
+  // Submit verification code (manual + google)
   const handleVerify = async () => {
     const enteredCode = code.join('')
     if (enteredCode.length !== 6) {
@@ -95,16 +103,20 @@ function VerifyEmailContent() {
     }
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/verify_email.php`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        credentials: 'include',
-        body: new URLSearchParams({ code: enteredCode, agreed_to_terms: 'true' }),
-      })
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_BASE_URL}/verify_email.php`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            email,
+            code: enteredCode,
+            agreed_to_terms: 'true',
+          }),
+        }
+      )
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`)
-      }
+      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`)
 
       const data = await response.json()
       if (data.success) {
@@ -140,16 +152,16 @@ function VerifyEmailContent() {
     if (!canResend) return
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/verify_email.php`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        credentials: 'include',
-        body: new URLSearchParams({ resend: 'true' }),
-      })
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_BASE_URL}/verify_email.php`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ email, resend: 'true' }),
+        }
+      )
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`)
-      }
+      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`)
 
       const data = await response.json()
       if (data.success) {
@@ -266,7 +278,7 @@ function VerifyEmailContent() {
         <button
           onClick={handleVerify}
           className="w-full py-2 px-4 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none"
-          disabled={timeLeft === 0 || code.join('').length !== 6}
+          disabled={code.join('').length !== 6}
         >
           Verify Email
         </button>
