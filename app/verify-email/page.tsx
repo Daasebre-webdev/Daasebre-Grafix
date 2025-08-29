@@ -13,11 +13,12 @@ function VerifyEmailContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [code, setCode] = useState<string[]>(Array(6).fill(''))
-  const [timeLeft, setTimeLeft] = useState<number>(600) // 10 minutes
+  const [timeLeft, setTimeLeft] = useState<number>(120) // 2 minutes
   const [canResend, setCanResend] = useState<boolean>(false)
   const [email, setEmail] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState<boolean>(false)
+  const [isVerifying, setIsVerifying] = useState<boolean>(false)
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
 
   // 🔹 Fetch verification session from backend
@@ -35,7 +36,8 @@ function VerifyEmailContent() {
     // Check if we have a stored expiration time
     const storedExpiry = localStorage.getItem('verification_expiry')
     if (storedExpiry) {
-      const remaining = Math.max(0, Math.floor((parseInt(storedExpiry) - Date.now()) / 1000))
+      const expiryTime = parseInt(storedExpiry)
+      const remaining = Math.max(0, Math.floor((expiryTime - Date.now()) / 1000))
       setTimeLeft(remaining)
       setCanResend(remaining <= 0)
     }
@@ -51,22 +53,28 @@ function VerifyEmailContent() {
           }
         )
         
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => ({}))
-          throw new Error(errorData.message || `HTTP error! Status: ${res.status}`)
-        }
-
         const data = await res.json()
+        
         if (data.success) {
           if (data.expires_at) {
-            const remaining = Math.max(0, Math.floor(data.expires_at - Date.now() / 1000))
+            // Convert to seconds if it's a timestamp
+            const expiresAt = typeof data.expires_at === 'number' 
+              ? data.expires_at 
+              : Math.floor(new Date(data.expires_at).getTime() / 1000);
+            
+            const remaining = Math.max(0, expiresAt - Math.floor(Date.now() / 1000))
             setTimeLeft(remaining)
-            localStorage.setItem('verification_expiry', data.expires_at.toString())
+            localStorage.setItem('verification_expiry', (Math.floor(Date.now() / 1000) + remaining).toString())
+          }
+          
+          // Check if already verified
+          if (data.redirect && data.message === 'Already verified') {
+            router.push(data.redirect)
           }
         } else {
           setError(data.message || 'Verification session expired. Please sign up again.')
           if (data.redirect) {
-            router.push(data.redirect)
+            setTimeout(() => router.push(data.redirect), 3000)
           }
         }
       } catch (err) {
@@ -83,7 +91,15 @@ function VerifyEmailContent() {
   // Countdown timer
   useEffect(() => {
     if (timeLeft > 0) {
-      const timer = setInterval(() => setTimeLeft((t) => t - 1), 1000)
+      const timer = setInterval(() => {
+        setTimeLeft((t) => {
+          if (t <= 1) {
+            setCanResend(true)
+            return 0
+          }
+          return t - 1
+        })
+      }, 1000)
       return () => clearInterval(timer)
     } else {
       setCanResend(true)
@@ -96,7 +112,11 @@ function VerifyEmailContent() {
       const newCode = [...code]
       newCode[index] = value
       setCode(newCode)
-      if (value && index < 5) {
+      
+      // Auto-submit when all digits are entered
+      if (value && index === 5 && newCode.every(digit => digit !== '')) {
+        handleVerify()
+      } else if (value && index < 5) {
         inputRefs.current[index + 1]?.focus()
       }
     }
@@ -108,6 +128,20 @@ function VerifyEmailContent() {
     }
   }
 
+  // Paste OTP code
+  const handlePaste = (e: React.ClipboardEvent) => {
+    e.preventDefault()
+    const pastedData = e.clipboardData.getData('text/plain').replace(/\D/g, '')
+    if (pastedData.length === 6) {
+      const newCode = pastedData.split('').slice(0, 6)
+      setCode(newCode)
+      
+      // Auto-focus the last input and submit
+      inputRefs.current[5]?.focus()
+      setTimeout(() => handleVerify(), 100)
+    }
+  }
+
   // Submit verification code (manual + google)
   const handleVerify = async () => {
     const enteredCode = code.join('')
@@ -116,7 +150,7 @@ function VerifyEmailContent() {
       return
     }
 
-    setIsLoading(true)
+    setIsVerifying(true)
     setError(null)
 
     try {
@@ -125,29 +159,26 @@ function VerifyEmailContent() {
         {
           method: 'POST',
           headers: { 
-            'Content-Type': 'application/x-www-form-urlencoded',
+            'Content-Type': 'application/json',
           },
           credentials: 'include',
-          body: new URLSearchParams({
+          body: JSON.stringify({
             email,
             code: enteredCode,
+            agreed_to_terms: true
           }),
         }
       )
 
       const data = await response.json()
       
-      if (!response.ok) {
-        throw new Error(data.message || `HTTP error! Status: ${response.status}`)
-      }
-
       if (data.success) {
         // Store session token if provided
-        if (data.session_token) {
-          localStorage.setItem('session_token', data.session_token)
+        if (data.user?.token) {
+          localStorage.setItem('session_token', data.user.token)
         }
-        if (data.token) {
-          localStorage.setItem('session_token', data.token)
+        if (data.jwt) {
+          localStorage.setItem('jwt_token', data.jwt)
         }
         
         // Clear verification data
@@ -177,7 +208,7 @@ function VerifyEmailContent() {
           : 'Verification failed. Please try again.'
       )
     } finally {
-      setIsLoading(false)
+      setIsVerifying(false)
     }
   }
 
@@ -194,26 +225,25 @@ function VerifyEmailContent() {
         {
           method: 'POST',
           headers: { 
-            'Content-Type': 'application/x-www-form-urlencoded',
+            'Content-Type': 'application/json',
           },
           credentials: 'include',
-          body: new URLSearchParams({ 
+          body: JSON.stringify({ 
             email, 
-            resend: 'true' 
+            resend: true 
           }),
         }
       )
 
       const data = await response.json()
       
-      if (!response.ok) {
-        throw new Error(data.message || `HTTP error! Status: ${response.status}`)
-      }
-
       if (data.success) {
-        setTimeLeft(600) // Reset to 10 minutes
+        setTimeLeft(120) // Reset to 2 minutes
         setCanResend(false)
         setCode(Array(6).fill(''))
+        
+        // Focus on first input field
+        inputRefs.current[0]?.focus()
         
         Swal.fire({
           icon: 'success',
@@ -231,7 +261,7 @@ function VerifyEmailContent() {
       setError(
         err instanceof Error
           ? `Failed to resend code: ${err.message}`
-          : 'Failed to resend verification code.'
+          : 'Failed to resend verification code. Please try again.'
       )
     } finally {
       setIsLoading(false)
@@ -295,13 +325,19 @@ function VerifyEmailContent() {
           </div>
         )}
         
-        {isLoading && (
+        {(isLoading || isVerifying) && (
           <div className="flex justify-center mb-4">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
+            <span className="ml-2 text-gray-600">
+              {isVerifying ? 'Verifying...' : 'Loading...'}
+            </span>
           </div>
         )}
 
-        <div className="flex justify-between mb-6">
+        <div 
+          className="flex justify-between mb-6"
+          onPaste={handlePaste}
+        >
           {code.map((digit, index) => (
             <input
               key={index}
@@ -309,12 +345,15 @@ function VerifyEmailContent() {
                 inputRefs.current[index] = el
               }}
               type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
               maxLength={1}
               value={digit}
               onChange={(e) => handleChange(index, e.target.value)}
               onKeyDown={(e) => handleKeyDown(index, e)}
-              disabled={isLoading}
+              disabled={isLoading || isVerifying}
               className="w-10 h-10 sm:w-12 sm:h-12 text-center text-lg sm:text-xl border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              autoFocus={index === 0}
             />
           ))}
         </div>
@@ -333,17 +372,17 @@ function VerifyEmailContent() {
               disabled={!canResend || isLoading}
               className="text-indigo-600 hover:text-indigo-800 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Resend Code
+              {isLoading ? 'Sending...' : 'Resend Code'}
             </button>
           )}
         </div>
         
         <button
           onClick={handleVerify}
-          disabled={code.join('').length !== 6 || isLoading}
+          disabled={code.join('').length !== 6 || isVerifying}
           className="w-full py-3 px-4 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {isLoading ? 'Verifying...' : 'Verify Email'}
+          {isVerifying ? 'Verifying...' : 'Verify Email'}
         </button>
         
         <p className="mt-6 text-xs sm:text-sm text-gray-500 text-center">
