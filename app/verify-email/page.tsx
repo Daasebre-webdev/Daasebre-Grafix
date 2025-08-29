@@ -22,13 +22,7 @@ function VerifyEmailContent() {
   const [isInitializing, setIsInitializing] = useState<boolean>(true)
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
 
-  // Helper function to safely get error message
-  const getErrorMessage = (error: unknown): string => {
-    if (error instanceof Error) {
-      return error.message;
-    }
-    return String(error);
-  }
+  
 
   // Clear error when code changes
   useEffect(() => {
