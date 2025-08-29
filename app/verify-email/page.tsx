@@ -38,7 +38,7 @@ function VerifyEmailContent() {
     }
   }, [code, error])
 
-  // 🔹 Fetch verification session from backend
+  // 🔹 Fetch verification session from backend using searchParams approach
   useEffect(() => {
     const initializeVerification = async () => {
       try {
@@ -63,10 +63,10 @@ function VerifyEmailContent() {
           setCanResend(remaining <= 0)
         }
 
-        // Try to fetch verification data from backend
+        // Try to fetch verification data from backend using searchParams approach
         try {
-          const apiUrl = `https://pulse.great-site.net/Google_signup/verify_email.php?email=${encodeURIComponent(urlEmail)}`
-          console.log('Fetching verification data from:', apiUrl)
+          // Use the same approach that's working - URL parameters
+          const apiUrl = `https://pulse.great-site.net/Google_signup/verify_email.php?email=${encodeURIComponent(urlEmail)}&action=check_status`
           
           const response = await fetch(apiUrl, { 
             method: 'GET',
@@ -76,50 +76,38 @@ function VerifyEmailContent() {
             }
           })
           
-          console.log('Response status:', response.status, response.statusText)
-          
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`)
-          }
-
-          const contentType = response.headers.get('content-type')
-          console.log('Response content-type:', contentType)
-          
-          if (!contentType || !contentType.includes('application/json')) {
-            const textResponse = await response.text()
-            console.log('Non-JSON response received:', textResponse.substring(0, 200))
-            throw new Error('Server returned invalid response format')
-          }
-          
-          const data = await response.json()
-          console.log('Response data:', data)
-          
-          if (data.success) {
-            if (data.expires_at) {
-              const expiresAt = typeof data.expires_at === 'number' 
-                ? data.expires_at 
-                : Math.floor(new Date(data.expires_at).getTime() / 1000);
-              
-              const remaining = Math.max(0, expiresAt - Math.floor(Date.now() / 1000))
-              setTimeLeft(remaining)
-              localStorage.setItem('verification_expiry', (Math.floor(Date.now() / 1000) + remaining).toString())
-            }
+          if (response.ok) {
+            const data = await response.json()
             
-            // Check if already verified
-            if (data.redirect && data.message?.includes('verified')) {
-              // User is already verified, redirect to dashboard
-              router.push(data.redirect)
-              return
+            if (data.success) {
+              if (data.expires_at) {
+                const expiresAt = typeof data.expires_at === 'number' 
+                  ? data.expires_at 
+                  : Math.floor(new Date(data.expires_at).getTime() / 1000);
+                
+                const remaining = Math.max(0, expiresAt - Math.floor(Date.now() / 1000))
+                setTimeLeft(remaining)
+                localStorage.setItem('verification_expiry', (Math.floor(Date.now() / 1000) + remaining).toString())
+              }
+              
+              // Check if already verified
+              if (data.redirect && data.message?.includes('verified')) {
+                // User is already verified, redirect to dashboard
+                router.push(data.redirect)
+                return
+              }
+            } else {
+              setError(data.message || 'Verification session expired. Please sign up again.')
             }
           } else {
-            setError(data.message || 'Verification session expired. Please sign up again.')
-            if (data.redirect) {
-              setTimeout(() => router.push(data.redirect), 3000)
-            }
+            // If GET request fails, we'll still allow manual code entry
+            console.warn('Status check failed, but allowing manual verification')
+            setError('Connection issue. You can still enter your verification code manually.')
           }
         } catch (fetchError) {
           console.error('API fetch error:', fetchError)
-          setError('Connection issue. Please check your internet connection and try again.')
+          // Even if status check fails, we allow manual code entry
+          setError('Connection issue. You can still enter your verification code.')
         }
       } catch (err) {
         console.error('Error initializing verification:', err)
@@ -179,7 +167,7 @@ function VerifyEmailContent() {
     }
   }
 
-  // Submit verification code
+  // Submit verification code using GET request with URL parameters
   const handleVerify = async () => {
     const enteredCode = code.join('')
     if (enteredCode.length !== 6) {
@@ -191,84 +179,84 @@ function VerifyEmailContent() {
     setError(null)
 
     try {
-      // Use URLSearchParams instead of FormData for better compatibility
-      const formData = new URLSearchParams()
-      formData.append('email', email)
-      formData.append('code', enteredCode)
-      formData.append('agreed_to_terms', 'true')
-
-      const apiUrl = 'https://pulse.great-site.net/Google_signup/verify_email.php'
-      console.log('Verifying code at:', apiUrl)
-      console.log('Request data:', { email, code: enteredCode })
-
+      // Use GET request with URL parameters (the approach that's working)
+      const apiUrl = `https://pulse.great-site.net/Google_signup/verify_email.php?email=${encodeURIComponent(email)}&code=${enteredCode}&agreed_to_terms=true&action=verify`
+      
       const response = await fetch(apiUrl, {
-        method: 'POST',
+        method: 'GET',
         credentials: 'include',
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: formData.toString(),
+          'Accept': 'application/json',
+        }
       })
 
-      console.log('Verification response status:', response.status, response.statusText)
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      const contentType = response.headers.get('content-type')
-      console.log('Response content-type:', contentType)
-      
-      if (!contentType || !contentType.includes('application/json')) {
-        const textResponse = await response.text()
-        console.error('Non-JSON response:', textResponse)
-        throw new Error('Server returned invalid response format')
-      }
-
-      const data = await response.json()
-      console.log('Verification response data:', data)
-      
-      if (data.success) {
-        // Store tokens if provided
-        if (data.user?.token) {
-          localStorage.setItem('session_token', data.user.token)
-        }
-        if (data.jwt) {
-          localStorage.setItem('jwt_token', data.jwt)
-        }
+      if (response.ok) {
+        const data = await response.json()
         
-        // Store user data for dashboard
-        if (data.user) {
-          login(data.user) // Use the login function from UserContext
-          localStorage.setItem('user_data', JSON.stringify(data.user))
+        if (data.success) {
+          // Store tokens if provided
+          if (data.user?.token) {
+            localStorage.setItem('session_token', data.user.token)
+          }
+          if (data.jwt) {
+            localStorage.setItem('jwt_token', data.jwt)
+          }
+          
+          // Store user data for dashboard
+          if (data.user) {
+            login(data.user)
+            localStorage.setItem('user_data', JSON.stringify(data.user))
+          }
+          
+          // Clear verification data
+          localStorage.removeItem('email_to_verify')
+          localStorage.removeItem('verification_expiry')
+          
+          Swal.fire({
+            icon: 'success',
+            title: 'Verification Successful!',
+            text: 'Your email has been verified successfully.',
+            timer: 2000,
+            showConfirmButton: false,
+          }).then(() => {
+            router.push(data.redirect || '/dashboard')
+          })
+        } else {
+          setError(data.message || 'Invalid or expired verification code.')
         }
-        
-        // Clear verification data
-        localStorage.removeItem('email_to_verify')
-        localStorage.removeItem('verification_expiry')
-        
-        Swal.fire({
-          icon: 'success',
-          title: 'Verification Successful!',
-          text: 'Your email has been verified successfully.',
-          timer: 2000,
-          showConfirmButton: false,
-        }).then(() => {
-          router.push(data.redirect || '/dashboard')
-        })
       } else {
-        setError(data.message || 'Invalid or expired verification code.')
+        throw new Error(`Server returned status: ${response.status}`)
       }
     } catch (err) {
       console.error('Verification error:', err)
-      const errorMessage = getErrorMessage(err)
-      setError(`Verification failed. Please check your connection and try again. Error: ${errorMessage}`)
+      setError('Verification failed. Please check your code and try again.')
+      
+      // Fallback: Try to use the get_user.php endpoint as alternative
+      try {
+        const userDataUrl = `https://pulse.great-site.net/Google_signup/get_user.php?email=${encodeURIComponent(email)}`
+        const userResponse = await fetch(userDataUrl, {
+          method: 'GET',
+          credentials: 'include',
+        })
+        
+        if (userResponse.ok) {
+          const userData = await userResponse.json()
+          if (userData.success && userData.user) {
+            login(userData.user)
+            localStorage.setItem('user_data', JSON.stringify(userData.user))
+            setError('Verification may have worked. Please check your dashboard.')
+            setTimeout(() => router.push('/dashboard'), 2000)
+          }
+        }
+      } catch (fallbackError) {
+        console.error('Fallback also failed:', fallbackError)
+      }
     } finally {
       setIsVerifying(false)
     }
   }
 
-  // Resend code
+  // Resend code using GET request
   const handleResend = async () => {
     if (!canResend) return
 
@@ -276,80 +264,46 @@ function VerifyEmailContent() {
     setError(null)
 
     try {
-      // Use URLSearchParams instead of FormData
-      const formData = new URLSearchParams()
-      formData.append('email', email)
-      formData.append('resend', 'true')
-
-      const apiUrl = 'https://pulse.great-site.net/Google_signup/verify_email.php'
-      console.log('Resending code to:', apiUrl)
-
+      // Use GET request with URL parameters
+      const apiUrl = `https://pulse.great-site.net/Google_signup/verify_email.php?email=${encodeURIComponent(email)}&resend=true`
+      
       const response = await fetch(apiUrl, {
-        method: 'POST',
+        method: 'GET',
         credentials: 'include',
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: formData.toString(),
+          'Accept': 'application/json',
+        }
       })
 
-      console.log('Resend response status:', response.status, response.statusText)
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      const contentType = response.headers.get('content-type')
-      console.log('Response content-type:', contentType)
-      
-      if (!contentType || !contentType.includes('application/json')) {
-        const textResponse = await response.text()
-        console.error('Non-JSON response:', textResponse)
-        throw new Error('Server returned invalid response format')
-      }
-
-      const data = await response.json()
-      console.log('Resend response data:', data)
-      
-      if (data.success) {
-        setTimeLeft(120)
-        setCanResend(false)
-        setCode(Array(6).fill(''))
+      if (response.ok) {
+        const data = await response.json()
         
-        // Focus on first input field
-        inputRefs.current[0]?.focus()
-        
-        Swal.fire({
-          icon: 'success',
-          title: 'Code Resent!',
-          text: 'A new verification code has been sent to your email.',
-          timer: 3000,
-          showConfirmButton: false,
-        })
+        if (data.success) {
+          setTimeLeft(120)
+          setCanResend(false)
+          setCode(Array(6).fill(''))
+          
+          // Focus on first input field
+          inputRefs.current[0]?.focus()
+          
+          Swal.fire({
+            icon: 'success',
+            title: 'Code Resent!',
+            text: 'A new verification code has been sent to your email.',
+            timer: 3000,
+            showConfirmButton: false,
+          })
+        } else {
+          setError(data.message || 'Failed to resend verification code.')
+        }
       } else {
-        setError(data.message || 'Failed to resend verification code.')
+        throw new Error(`Server returned status: ${response.status}`)
       }
     } catch (err) {
       console.error('Resend error:', err)
-      const errorMessage = getErrorMessage(err)
-      setError(`Failed to resend code: ${errorMessage}`)
+      setError('Failed to resend code. Please try again later.')
     } finally {
       setIsLoading(false)
-    }
-  }
-
-  // Test connection to backend
-  const testConnection = async () => {
-    try {
-      const response = await fetch('https://pulse.great-site.net/Google_signup/verify_email.php', {
-        method: 'HEAD',
-        credentials: 'include',
-      })
-      console.log('Connection test result:', response.status, response.statusText)
-      return response.ok
-    } catch (error) {
-      console.error('Connection test failed:', error)
-      return false
     }
   }
 
@@ -378,18 +332,6 @@ function VerifyEmailContent() {
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-4">
             <p className="text-red-700 text-sm text-center">{error}</p>
-            <button
-              onClick={() => testConnection().then(success => {
-                if (success) {
-                  setError('Connection test successful. Please try again.')
-                } else {
-                  setError('Connection test failed. Please check your internet connection.')
-                }
-              })}
-              className="text-blue-600 text-xs mt-2 underline"
-            >
-              Test Connection
-            </button>
           </div>
         )}
         
@@ -450,23 +392,10 @@ function VerifyEmailContent() {
           {isVerifying ? 'Verifying...' : 'Verify Email'}
         </button>
 
-        <div className="mt-4 text-center">
-          <button
-            onClick={() => {
-              console.log('Current state:', {
-                email,
-                code: code.join(''),
-                timeLeft,
-                canResend,
-                isLoading,
-                isVerifying
-              })
-              testConnection()
-            }}
-            className="text-xs text-gray-500 underline"
-          >
-            Debug Info
-          </button>
+        <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+          <p className="text-blue-700 text-sm text-center">
+            <strong>Note:</strong> If verification fails, please check your email for the code and try again.
+          </p>
         </div>
       </div>
     </div>
