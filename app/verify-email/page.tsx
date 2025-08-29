@@ -13,16 +13,16 @@ function VerifyEmailContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [code, setCode] = useState<string[]>(Array(6).fill(''))
-  const [timeLeft, setTimeLeft] = useState<number>(120) // 2 minutes
+  const [timeLeft, setTimeLeft] = useState<number>(600) // 10 minutes
   const [canResend, setCanResend] = useState<boolean>(false)
   const [email, setEmail] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState<boolean>(false)
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
 
   // 🔹 Fetch verification session from backend
   useEffect(() => {
-    const urlEmail =
-      searchParams.get('email') || localStorage.getItem('email_to_verify')
+    const urlEmail = searchParams.get('email') || localStorage.getItem('email_to_verify')
 
     if (!urlEmail) {
       setError('No email found for verification.')
@@ -32,34 +32,48 @@ function VerifyEmailContent() {
     setEmail(urlEmail)
     localStorage.setItem('email_to_verify', urlEmail)
 
+    // Check if we have a stored expiration time
+    const storedExpiry = localStorage.getItem('verification_expiry')
+    if (storedExpiry) {
+      const remaining = Math.max(0, Math.floor((parseInt(storedExpiry) - Date.now()) / 1000))
+      setTimeLeft(remaining)
+      setCanResend(remaining <= 0)
+    }
+
     const fetchVerification = async () => {
       try {
+        setIsLoading(true)
         const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_BASE_URL}/verify_email.php?email=${encodeURIComponent(
-            urlEmail
-          )}`,
-          { method: 'GET' }
+          `https://pulse.great-site.net/Google_signup/verify_email.php?email=${encodeURIComponent(urlEmail)}`,
+          { 
+            method: 'GET',
+            credentials: 'include'
+          }
         )
-        if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`)
+        
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}))
+          throw new Error(errorData.message || `HTTP error! Status: ${res.status}`)
+        }
 
         const data = await res.json()
         if (data.success) {
           if (data.expires_at) {
-            const remaining = Math.max(
-              0,
-              Math.floor(data.expires_at - Date.now() / 1000)
-            )
+            const remaining = Math.max(0, Math.floor(data.expires_at - Date.now() / 1000))
             setTimeLeft(remaining)
+            localStorage.setItem('verification_expiry', data.expires_at.toString())
           }
         } else {
-          setError(
-            data.message || 'Verification session expired. Please sign up again.'
-          )
-          if (data.redirect) router.push(data.redirect)
+          setError(data.message || 'Verification session expired. Please sign up again.')
+          if (data.redirect) {
+            router.push(data.redirect)
+          }
         }
       } catch (err) {
         console.error('Error fetching verification session:', err)
-        setError('Could not load verification data.')
+        setError('Could not load verification data. Please try again later.')
+      } finally {
+        setIsLoading(false)
       }
     }
 
@@ -102,48 +116,68 @@ function VerifyEmailContent() {
       return
     }
 
+    setIsLoading(true)
+    setError(null)
+
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/verify_email.php`,
+        'https://pulse.great-site.net/Google_signup/verify_email.php',
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          headers: { 
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          credentials: 'include',
           body: new URLSearchParams({
             email,
             code: enteredCode,
-            agreed_to_terms: 'true',
           }),
         }
       )
 
-      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`)
-
       const data = await response.json()
+      
+      if (!response.ok) {
+        throw new Error(data.message || `HTTP error! Status: ${response.status}`)
+      }
+
       if (data.success) {
-        if (data.jwt) {
-          localStorage.setItem('jwt_token', data.jwt)
+        // Store session token if provided
+        if (data.session_token) {
+          localStorage.setItem('session_token', data.session_token)
         }
+        if (data.token) {
+          localStorage.setItem('session_token', data.token)
+        }
+        
+        // Clear verification data
+        localStorage.removeItem('email_to_verify')
+        localStorage.removeItem('verification_expiry')
+        
         await fetchUser()
+        
         Swal.fire({
           icon: 'success',
-          title: 'Verification Successful',
-          text: 'Redirecting to dashboard...',
+          title: 'Verification Successful!',
+          text: 'Your email has been verified successfully.',
           confirmButtonColor: '#28a745',
           timer: 2000,
-          willClose: () => {
-            router.push(data.redirect || '/dashboard')
-          },
+          showConfirmButton: false,
+        }).then(() => {
+          router.push(data.redirect || '/dashboard')
         })
       } else {
-        setError(data.message || 'Invalid or expired code.')
+        setError(data.message || 'Invalid or expired verification code.')
       }
     } catch (err) {
       console.error('Verification error:', err)
       setError(
         err instanceof Error
-          ? `Failed to connect to the server. Please check your network. Details: ${err.message}`
-          : 'Failed to connect to the server. Please check your network.'
+          ? `Verification failed: ${err.message}`
+          : 'Verification failed. Please try again.'
       )
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -151,41 +185,56 @@ function VerifyEmailContent() {
   const handleResend = async () => {
     if (!canResend) return
 
+    setIsLoading(true)
+    setError(null)
+
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/verify_email.php`,
+        'https://pulse.great-site.net/Google_signup/verify_email.php',
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ email, resend: 'true' }),
+          headers: { 
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          credentials: 'include',
+          body: new URLSearchParams({ 
+            email, 
+            resend: 'true' 
+          }),
         }
       )
 
-      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`)
-
       const data = await response.json()
+      
+      if (!response.ok) {
+        throw new Error(data.message || `HTTP error! Status: ${response.status}`)
+      }
+
       if (data.success) {
-        setTimeLeft(120)
+        setTimeLeft(600) // Reset to 10 minutes
         setCanResend(false)
-        setError(null)
         setCode(Array(6).fill(''))
+        
         Swal.fire({
           icon: 'success',
-          title: 'Code Resent',
-          text: 'Check your email inbox for the new code.',
+          title: 'Code Resent!',
+          text: 'A new verification code has been sent to your email.',
           confirmButtonColor: '#28a745',
-          customClass: { popup: 'text-sm' },
+          timer: 3000,
+          showConfirmButton: false,
         })
       } else {
-        setError(data.message || 'Failed to resend code.')
+        setError(data.message || 'Failed to resend verification code.')
       }
     } catch (err) {
       console.error('Resend error:', err)
       setError(
         err instanceof Error
-          ? `Network error while resending code. Details: ${err.message}`
-          : 'Network error while resending code.'
+          ? `Failed to resend code: ${err.message}`
+          : 'Failed to resend verification code.'
       )
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -216,8 +265,7 @@ function VerifyEmailContent() {
       background: '#ffffff',
       customClass: {
         popup: 'rounded-lg shadow-xl',
-        confirmButton:
-          'px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-md text-white font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
+        confirmButton: 'px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-md text-white font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
         closeButton: 'text-gray-400 hover:text-gray-600',
       },
       showCloseButton: true,
@@ -240,7 +288,19 @@ function VerifyEmailContent() {
           Enter the 6-digit code sent to<br />
           <strong>{email || 'your email'}</strong>
         </p>
-        {error && <p className="text-red-500 text-center mb-4">{error}</p>}
+        
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-4">
+            <p className="text-red-700 text-sm text-center">{error}</p>
+          </div>
+        )}
+        
+        {isLoading && (
+          <div className="flex justify-center mb-4">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
+          </div>
+        )}
+
         <div className="flex justify-between mb-6">
           {code.map((digit, index) => (
             <input
@@ -253,10 +313,12 @@ function VerifyEmailContent() {
               value={digit}
               onChange={(e) => handleChange(index, e.target.value)}
               onKeyDown={(e) => handleKeyDown(index, e)}
-              className="w-10 h-10 sm:w-12 sm:h-12 text-center text-lg sm:text-xl border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              disabled={isLoading}
+              className="w-10 h-10 sm:w-12 sm:h-12 text-center text-lg sm:text-xl border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
             />
           ))}
         </div>
+        
         <div className="text-center mb-6">
           {timeLeft > 0 ? (
             <p className="text-sm text-gray-500">
@@ -268,20 +330,22 @@ function VerifyEmailContent() {
           ) : (
             <button
               onClick={handleResend}
-              disabled={!canResend}
-              className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
+              disabled={!canResend || isLoading}
+              className="text-indigo-600 hover:text-indigo-800 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Resend Code
             </button>
           )}
         </div>
+        
         <button
           onClick={handleVerify}
-          className="w-full py-2 px-4 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none"
-          disabled={code.join('').length !== 6}
+          disabled={code.join('').length !== 6 || isLoading}
+          className="w-full py-3 px-4 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          Verify Email
+          {isLoading ? 'Verifying...' : 'Verify Email'}
         </button>
+        
         <p className="mt-6 text-xs sm:text-sm text-gray-500 text-center">
           By verifying, you agree to our{' '}
           <span
@@ -298,7 +362,11 @@ function VerifyEmailContent() {
 
 export default function VerifyEmail() {
   return (
-    <Suspense fallback={<div>Loading...</div>}>
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+      </div>
+    }>
       <VerifyEmailContent />
     </Suspense>
   )
