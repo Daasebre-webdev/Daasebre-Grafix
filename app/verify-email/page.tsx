@@ -19,39 +19,51 @@ function VerifyEmailContent() {
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [isVerifying, setIsVerifying] = useState<boolean>(false)
+  const [isInitializing, setIsInitializing] = useState<boolean>(true)
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
 
   // 🔹 Fetch verification session from backend
   useEffect(() => {
-    const urlEmail = searchParams.get('email') || localStorage.getItem('email_to_verify')
-
-    if (!urlEmail) {
-      setError('No email found for verification.')
-      return
-    }
-
-    setEmail(urlEmail)
-    localStorage.setItem('email_to_verify', urlEmail)
-
-    // Check if we have a stored expiration time
-    const storedExpiry = localStorage.getItem('verification_expiry')
-    if (storedExpiry) {
-      const expiryTime = parseInt(storedExpiry)
-      const remaining = Math.max(0, Math.floor((expiryTime - Date.now()) / 1000))
-      setTimeLeft(remaining)
-      setCanResend(remaining <= 0)
-    }
-
-    const fetchVerification = async () => {
+    const initializeVerification = async () => {
       try {
-        setIsLoading(true)
+        setIsInitializing(true)
+        const urlEmail = searchParams.get('email') || localStorage.getItem('email_to_verify')
+
+        if (!urlEmail) {
+          setError('No email found for verification. Please sign up again.')
+          setIsInitializing(false)
+          return
+        }
+
+        setEmail(urlEmail)
+        localStorage.setItem('email_to_verify', urlEmail)
+
+        // Check if we have a stored expiration time
+        const storedExpiry = localStorage.getItem('verification_expiry')
+        if (storedExpiry) {
+          const expiryTime = parseInt(storedExpiry)
+          const remaining = Math.max(0, Math.floor((expiryTime - Date.now()) / 1000))
+          setTimeLeft(remaining)
+          setCanResend(remaining <= 0)
+        }
+
+        // Fetch verification data from backend
         const res = await fetch(
           `https://pulse.great-site.net/Google_signup/verify_email.php?email=${encodeURIComponent(urlEmail)}`,
           { 
             method: 'GET',
-            credentials: 'include'
+            credentials: 'include',
+            headers: {
+              'Accept': 'application/json',
+            }
           }
         )
+        
+        // Check if response is JSON
+        const contentType = res.headers.get('content-type')
+        if (!contentType || !contentType.includes('application/json')) {
+          throw new Error('Server returned invalid response format')
+        }
         
         const data = await res.json()
         
@@ -68,8 +80,9 @@ function VerifyEmailContent() {
           }
           
           // Check if already verified
-          if (data.redirect && data.message === 'Already verified') {
+          if (data.redirect && (data.message === 'Already verified' || data.message === 'Email already verified')) {
             router.push(data.redirect)
+            return
           }
         } else {
           setError(data.message || 'Verification session expired. Please sign up again.')
@@ -78,14 +91,21 @@ function VerifyEmailContent() {
           }
         }
       } catch (err) {
-        console.error('Error fetching verification session:', err)
+        console.error('Error initializing verification:', err)
         setError('Could not load verification data. Please try again later.')
+        
+        // Try to get email from session storage as fallback
+        const fallbackEmail = localStorage.getItem('email_to_verify')
+        if (fallbackEmail) {
+          setEmail(fallbackEmail)
+          setError('Verification data loaded from cache. You can still enter your code.')
+        }
       } finally {
-        setIsLoading(false)
+        setIsInitializing(false)
       }
     }
 
-    fetchVerification()
+    initializeVerification()
   }, [router, searchParams])
 
   // Countdown timer
@@ -170,6 +190,12 @@ function VerifyEmailContent() {
         }
       )
 
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('Server returned invalid response format')
+      }
+
       const data = await response.json()
       
       if (data.success) {
@@ -234,6 +260,12 @@ function VerifyEmailContent() {
           }),
         }
       )
+
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('Server returned invalid response format')
+      }
 
       const data = await response.json()
       
@@ -306,6 +338,17 @@ function VerifyEmailContent() {
       buttonsStyling: false,
       scrollbarPadding: false,
     })
+  }
+
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-r from-indigo-100 to-blue-200">
+        <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading verification data...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
