@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, Suspense } from 'react'
 import { useUser } from '@/app/context/UserContext'
-import { useRouter, } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import Swal from 'sweetalert2'
 
 // Force dynamic rendering to avoid suspense error
@@ -39,16 +39,19 @@ function VerifyEmailContent() {
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [isVerifying, setIsVerifying] = useState<boolean>(false)
+  const [initializationFailed, setInitializationFailed] = useState<boolean>(false)
   const inputRefs = useRef<(HTMLInputElement | null)[]>(Array(6).fill(null))
 
   // JWT from localStorage
   const jwtToken = typeof window !== 'undefined' ? localStorage.getItem('jwt_token') : null
 
-  // Initialize - get email and expiry time
+  // Initialize - get email and expiry time with better error handling
   useEffect(() => {
     const initVerify = async () => {
       try {
         const apiUrl = 'https://pulse.great-site.net/Google_signup/verify_email.php'
+        
+        console.log('Initializing verification with token:', jwtToken ? 'Available' : 'Not available');
         
         const response = await fetch(apiUrl, {
           method: 'GET',
@@ -59,8 +62,11 @@ function VerifyEmailContent() {
           credentials: 'include',
         })
 
+        console.log('Initialization response status:', response.status);
+
         if (response.ok) {
           const data: ApiResponse = await response.json()
+          console.log('Initialization response data:', data);
           
           if (data.success) {
             if (data.redirect) {
@@ -82,17 +88,27 @@ function VerifyEmailContent() {
             }
           } else {
             setError(data.message || 'Failed to initialize verification')
+            setInitializationFailed(true)
           }
         } else {
-          setError('Failed to initialize verification')
+          console.error('Initialization failed with status:', response.status);
+          setInitializationFailed(true)
         }
       } catch (err) {
         console.error('Initialization error:', err)
-        setError('Network error during initialization')
+        setInitializationFailed(true)
       }
     }
 
-    initVerify()
+    // Check if we already have email in localStorage before making API call
+    const savedEmail = localStorage.getItem('email_to_verify');
+    if (savedEmail) {
+      setEmail(savedEmail);
+      console.log('Pre-loaded email from localStorage:', savedEmail);
+    } else {
+      // If no email in localStorage, try to get it from the API
+      initVerify()
+    }
   }, [jwtToken, router])
 
   // Countdown timer
@@ -149,93 +165,98 @@ function VerifyEmailContent() {
     }
   }
 
- // Verify code - using form data format
-const handleVerify = async () => {
-  const enteredCode = code.join('')
-  if (enteredCode.length !== 6) {
-    setError('Please enter all 6 digits of the verification code.')
-    return
-  }
-
-  setIsVerifying(true)
-  setError(null)
-
-  try {
-    const apiUrl = 'https://pulse.great-site.net/Google_signup/verify_email.php'
-
-    // Use FormData instead of JSON
-    const formData = new FormData()
-    formData.append('code', enteredCode)
-
-    console.log('Sending verification code:', enteredCode)
-
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        ...(jwtToken ? { Authorization: `Bearer ${jwtToken}` } : {}),
-      },
-      body: formData,
-      credentials: 'include',
-    })
-
-    console.log('Verification HTTP status:', response.status)
-
-    const data: ApiResponse = await response.json()
-    console.log('Verification response:', data)
-
-    if (response.ok && data.success) {
-      console.log('Verification succeeded:', data)
-
-      if (data.jwt) localStorage.setItem('jwt_token', data.jwt)
-      if (data.session_token) localStorage.setItem('session_token', data.session_token)
-      if (data.user) {
-        // Ensure id is always a string and name has a default value
-        const userData = {
-          ...data.user,
-          id: String(data.user.id),
-          name: data.user.name || '' // Provide default empty string if name is undefined
-        }
-        login(userData)
-        localStorage.setItem('user_data', JSON.stringify(userData))
-      }
-
-      localStorage.removeItem('email_to_verify')
-      localStorage.removeItem('verification_expiry')
-
-      Swal.fire({
-        icon: 'success',
-        title: 'Verification Successful!',
-        text: 'Your email has been verified.',
-        timer: 2000,
-        showConfirmButton: false,
-      }).then(() => {
-        if (data.redirect) {
-          router.push(data.redirect)
-        } else {
-          router.push('/dashboard')
-        }
-      })
-    } else {
-      console.warn('Verification failed:', data)
-      
-      // Handle specific error codes
-      let errorMessage = data.message || 'Verification failed. Please try again.'
-      if (data.error_code === 1002) {
-        errorMessage = 'Verification code expired. Please request a new one.'
-      } else if (data.error_code === 1004) {
-        errorMessage = 'Invalid verification code. Please try again.'
-      }
-      
-      setError(errorMessage)
+  // Verify code - using form data format
+  const handleVerify = async () => {
+    const enteredCode = code.join('')
+    if (enteredCode.length !== 6) {
+      setError('Please enter all 6 digits of the verification code.')
+      return
     }
-  } catch (err) {
-    console.error('Network error during verification:', err)
-    setError('Network error. Please check your connection and try again.')
-  } finally {
-    setIsVerifying(false)
+
+    setIsVerifying(true)
+    setError(null)
+
+    try {
+      const apiUrl = 'https://pulse.great-site.net/Google_signup/verify_email.php'
+
+      // Use FormData instead of JSON
+      const formData = new FormData()
+      formData.append('code', enteredCode)
+
+      console.log('Sending verification code:', enteredCode)
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          ...(jwtToken ? { Authorization: `Bearer ${jwtToken}` } : {}),
+        },
+        body: formData,
+        credentials: 'include',
+      })
+
+      console.log('Verification HTTP status:', response.status)
+
+      // Check if server is responding
+      if (response.status >= 500) {
+        throw new Error('Server error. Please try again later.')
+      }
+
+      const data: ApiResponse = await response.json()
+      console.log('Verification response:', data)
+
+      if (response.ok && data.success) {
+        console.log('Verification succeeded:', data)
+
+        if (data.jwt) localStorage.setItem('jwt_token', data.jwt)
+        if (data.session_token) localStorage.setItem('session_token', data.session_token)
+        if (data.user) {
+          // Ensure id is always a string and name has a default value
+          const userData = {
+            ...data.user,
+            id: String(data.user.id),
+            name: data.user.name || '' // Provide default empty string if name is undefined
+          }
+          login(userData)
+          localStorage.setItem('user_data', JSON.stringify(userData))
+        }
+
+        localStorage.removeItem('email_to_verify')
+        localStorage.removeItem('verification_expiry')
+
+        Swal.fire({
+          icon: 'success',
+          title: 'Verification Successful!',
+          text: 'Your email has been verified.',
+          timer: 2000,
+          showConfirmButton: false,
+        }).then(() => {
+          if (data.redirect) {
+            router.push(data.redirect)
+          } else {
+            router.push('/dashboard')
+          }
+        })
+      } else {
+        console.warn('Verification failed:', data)
+        
+        // Handle specific error codes
+        let errorMessage = data.message || 'Verification failed. Please try again.'
+        if (data.error_code === 1002) {
+          errorMessage = 'Verification code expired. Please request a new one.'
+        } else if (data.error_code === 1004) {
+          errorMessage = 'Invalid verification code. Please try again.'
+        }
+        
+        setError(errorMessage)
+      }
+    } catch (err) {
+      console.error('Network error during verification:', err)
+      setError('Server is currently unavailable. Please try again later.')
+    } finally {
+      setIsVerifying(false)
+    }
   }
-}
 
   // Resend code using form data
   const handleResend = async () => {
@@ -264,6 +285,12 @@ const handleVerify = async () => {
       })
 
       console.log('Resend HTTP status:', response.status)
+      
+      // Check if server is responding
+      if (response.status >= 500) {
+        throw new Error('Server error. Please try again later.')
+      }
+      
       const data: ApiResponse = await response.json()
       console.log('Resend response:', data)
 
@@ -291,10 +318,37 @@ const handleVerify = async () => {
       }
     } catch (err) {
       console.error('Network error during resend:', err)
-      setError('Network error. Please check your connection and try again.')
+      setError('Server is currently unavailable. Please try again later.')
     } finally {
       setIsLoading(false)
     }
+  }
+
+  if (!email && initializationFailed) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-r from-indigo-100 to-blue-200">
+        <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md text-center">
+          <div className="text-red-500 text-5xl mb-4">⚠️</div>
+          <h2 className="text-xl font-bold text-gray-800 mb-4">Server Unavailable</h2>
+          <p className="text-gray-600 mb-6">
+            We&apos;re experiencing technical difficulties. Your account has been created, 
+            but we can&apos;t send a verification code right now.
+          </p>
+          <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4 mb-6">
+            <p className="text-yellow-700 text-sm">
+              <strong>Note:</strong> Your account has been created successfully. 
+              Please try verifying your email later or contact support.
+            </p>
+          </div>
+          <button
+            onClick={() => router.push('/dashboard')}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700"
+          >
+            Go to Dashboard
+          </button>
+        </div>
+      </div>
+    )
   }
 
   if (!email) {
@@ -306,12 +360,6 @@ const handleVerify = async () => {
           {error && (
             <div className="mt-4 bg-red-50 border border-red-200 rounded-md p-3">
               <p className="text-red-700 text-sm">{error}</p>
-              <button
-                onClick={() => router.push('/signup')}
-                className="mt-2 px-4 py-2 bg-red-500 text-white rounded-md text-sm hover:bg-red-600"
-              >
-                Go Back to Signup
-              </button>
             </div>
           )}
         </div>
@@ -329,6 +377,15 @@ const handleVerify = async () => {
           Enter the 6-digit code sent to<br />
           <strong>{email}</strong>
         </p>
+
+        {initializationFailed && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 mb-4">
+            <p className="text-yellow-700 text-sm text-center">
+              <strong>Note:</strong> We&apos;re experiencing server issues. 
+              You can still try to verify your code, but resend may not work.
+            </p>
+          </div>
+        )}
 
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-4">
@@ -377,7 +434,7 @@ const handleVerify = async () => {
           ) : (
             <button
               onClick={handleResend}
-              disabled={!canResend || isLoading}
+              disabled={!canResend || isLoading || initializationFailed}
               className="text-indigo-600 hover:text-indigo-800 text-sm font-medium disabled:opacity-50 disabled:pointer-events-none"
             >
               {isLoading ? 'Sending...' : 'Resend Code'}
