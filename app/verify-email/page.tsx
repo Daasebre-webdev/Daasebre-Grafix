@@ -20,9 +20,10 @@ function VerifyEmailContent() {
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [isVerifying, setIsVerifying] = useState<boolean>(false)
   const [isInitializing, setIsInitializing] = useState<boolean>(true)
-  const inputRefs = useRef<(HTMLInputElement | null)[]>([])
+  const inputRefs = useRef<(HTMLInputElement | null)[]>(Array(6).fill(null))
 
-  
+  // JWT from localStorage
+  const jwtToken = typeof window !== 'undefined' ? localStorage.getItem('jwt_token') : null
 
   // Clear error when code changes
   useEffect(() => {
@@ -32,7 +33,7 @@ function VerifyEmailContent() {
     }
   }, [code, error])
 
-  // 🔹 Fetch verification session from backend using searchParams approach
+  // Initialize verification session
   useEffect(() => {
     const initializeVerification = async () => {
       try {
@@ -48,60 +49,41 @@ function VerifyEmailContent() {
         setEmail(urlEmail)
         localStorage.setItem('email_to_verify', urlEmail)
 
-        // Check if we have a stored expiration time
-        const storedExpiry = localStorage.getItem('verification_expiry')
-        if (storedExpiry) {
-          const expiryTime = parseInt(storedExpiry)
-          const remaining = Math.max(0, Math.floor((expiryTime - Date.now()) / 1000))
-          setTimeLeft(remaining)
-          setCanResend(remaining <= 0)
-        }
+        // Fetch verification info from backend
+        const apiUrl = `https://pulse.great-site.net/Google_signup/verify_email.php?email=${encodeURIComponent(urlEmail)}&action=check_status`
 
-        // Try to fetch verification data from backend using searchParams approach
-        try {
-          // Use the same approach that's working - URL parameters
-          const apiUrl = `https://pulse.great-site.net/Google_signup/verify_email.php?email=${encodeURIComponent(urlEmail)}&action=check_status`
-          
-          const response = await fetch(apiUrl, { 
-            method: 'GET',
-            credentials: 'include',
-            headers: {
-              'Accept': 'application/json',
+        const response = await fetch(apiUrl, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            ...(jwtToken ? { Authorization: `Bearer ${jwtToken}` } : {})
+          },
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          if (data.success) {
+            if (data.expires_at) {
+              const expiresAt = typeof data.expires_at === 'number'
+                ? data.expires_at
+                : Math.floor(new Date(data.expires_at).getTime() / 1000)
+
+              const remaining = Math.max(0, expiresAt - Math.floor(Date.now() / 1000))
+              setTimeLeft(remaining)
+              localStorage.setItem('verification_expiry', (Math.floor(Date.now() / 1000) + remaining).toString())
             }
-          })
-          
-          if (response.ok) {
-            const data = await response.json()
-            
-            if (data.success) {
-              if (data.expires_at) {
-                const expiresAt = typeof data.expires_at === 'number' 
-                  ? data.expires_at 
-                  : Math.floor(new Date(data.expires_at).getTime() / 1000);
-                
-                const remaining = Math.max(0, expiresAt - Math.floor(Date.now() / 1000))
-                setTimeLeft(remaining)
-                localStorage.setItem('verification_expiry', (Math.floor(Date.now() / 1000) + remaining).toString())
-              }
-              
-              // Check if already verified
-              if (data.redirect && data.message?.includes('verified')) {
-                // User is already verified, redirect to dashboard
-                router.push(data.redirect)
-                return
-              }
-            } else {
-              setError(data.message || 'Verification session expired. Please sign up again.')
+
+            // Already verified
+            if (data.redirect && data.message?.includes('verified')) {
+              router.push(data.redirect)
+              return
             }
           } else {
-            // If GET request fails, we'll still allow manual code entry
-            console.warn('Status check failed, but allowing manual verification')
-            setError('Connection issue. You can still enter your verification code manually.')
+            setError(data.message || 'Verification session expired. Please sign up again.')
           }
-        } catch (fetchError) {
-          console.error('API fetch error:', fetchError)
-          // Even if status check fails, we allow manual code entry
-          setError('Connection issue. You can still enter your verification code.')
+        } else {
+          console.warn('Status check failed, but allowing manual verification')
+          setError('Connection issue. You can still enter your verification code manually.')
         }
       } catch (err) {
         console.error('Error initializing verification:', err)
@@ -112,7 +94,7 @@ function VerifyEmailContent() {
     }
 
     initializeVerification()
-  }, [router, searchParams])
+  }, [router, searchParams, jwtToken])
 
   // Countdown timer
   useEffect(() => {
@@ -132,36 +114,23 @@ function VerifyEmailContent() {
     }
   }, [timeLeft])
 
-  // Handle OTP input
+  // OTP input handling
   const handleChange = (index: number, value: string) => {
     if (/^[0-9]?$/.test(value)) {
       const newCode = [...code]
       newCode[index] = value
       setCode(newCode)
-      
-      // Clear error when user starts typing
-      if (error && error.includes('Please enter all 6 digits')) {
-        setError(null)
-      }
-      
-      if (value && index < 5) {
-        inputRefs.current[index + 1]?.focus()
-      }
-      
-      // Auto-submit when all digits are entered
-      if (value && index === 5 && newCode.every(digit => digit !== '')) {
-        handleVerify()
-      }
+      if (error && error.includes('Please enter all 6 digits')) setError(null)
+      if (value && index < 5) inputRefs.current[index + 1]?.focus()
+      if (value && index === 5 && newCode.every(digit => digit !== '')) handleVerify()
     }
   }
 
   const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Backspace' && !code[index] && index > 0) {
-      inputRefs.current[index - 1]?.focus()
-    }
+    if (e.key === 'Backspace' && !code[index] && index > 0) inputRefs.current[index - 1]?.focus()
   }
 
-  // Submit verification code using GET request with URL parameters
+  // Verify code
   const handleVerify = async () => {
     const enteredCode = code.join('')
     if (enteredCode.length !== 6) {
@@ -173,84 +142,88 @@ function VerifyEmailContent() {
     setError(null)
 
     try {
-      // Use GET request with URL parameters (the approach that's working)
-      const apiUrl = `https://pulse.great-site.net/Google_signup/verify_email.php?email=${encodeURIComponent(email)}&code=${enteredCode}&agreed_to_terms=true&action=verify`
-      
+      const apiUrl = `https://pulse.great-site.net/Google_signup/verify_email.php`
+
+      const formData = new FormData()
+      formData.append('email', email)
+      formData.append('code', enteredCode)
+      formData.append('agreed_to_terms', 'true')
+      formData.append('action', 'verify')
+
       const response = await fetch(apiUrl, {
-        method: 'GET',
-        credentials: 'include',
+        method: 'POST',
         headers: {
           'Accept': 'application/json',
-        }
+          ...(jwtToken ? { Authorization: `Bearer ${jwtToken}` } : {})
+        },
+        body: formData
       })
 
       if (response.ok) {
         const data = await response.json()
-        
         if (data.success) {
-          // Store tokens if provided
-          if (data.user?.token) {
-            localStorage.setItem('session_token', data.user.token)
-          }
+          // Store both JWT and session token
           if (data.jwt) {
             localStorage.setItem('jwt_token', data.jwt)
           }
-          
-          // Store user data for dashboard
-          if (data.user) {
-            login(data.user)
-            localStorage.setItem('user_data', JSON.stringify(data.user))
+          if (data.session_token) {
+            localStorage.setItem('session_token', data.session_token)
           }
           
-          // Clear verification data
+          // Fetch complete user data using the new JWT token
+          if (data.jwt && data.user) {
+            try {
+              const userResponse = await fetch(`https://pulse.great-site.net/Google_signup/get_user.php`, {
+                method: 'GET',
+                headers: {
+                  'Accept': 'application/json',
+                  'Authorization': `Bearer ${data.jwt}`
+                }
+              })
+
+              if (userResponse.ok) {
+                const userData = await userResponse.json()
+                if (userData.success && userData.user) {
+                  login(userData.user)
+                  localStorage.setItem('user_data', JSON.stringify(userData.user))
+                }
+              }
+            } catch (err) {
+              console.warn('Failed to fetch user data, using verification response data:', err)
+              // Fallback to verification response data
+              if (data.user) {
+                login(data.user)
+                localStorage.setItem('user_data', JSON.stringify(data.user))
+              }
+            }
+          }
+
           localStorage.removeItem('email_to_verify')
           localStorage.removeItem('verification_expiry')
-          
+
           Swal.fire({
             icon: 'success',
             title: 'Verification Successful!',
             text: 'Your email has been verified successfully.',
             timer: 2000,
             showConfirmButton: false,
-          }).then(() => {
-            router.push(data.redirect || '/dashboard')
-          })
+          }).then(() => router.push(data.redirect || '/dashboard'))
         } else {
           setError(data.message || 'Invalid or expired verification code.')
         }
       } else {
-        throw new Error(`Server returned status: ${response.status}`)
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.message || `Server returned status: ${response.status}`)
       }
     } catch (err) {
       console.error('Verification error:', err)
-      setError('Verification failed. Please check your code and try again.')
-      
-      // Fallback: Try to use the get_user.php endpoint as alternative
-      try {
-        const userDataUrl = `https://pulse.great-site.net/Google_signup/get_user.php?email=${encodeURIComponent(email)}`
-        const userResponse = await fetch(userDataUrl, {
-          method: 'GET',
-          credentials: 'include',
-        })
-        
-        if (userResponse.ok) {
-          const userData = await userResponse.json()
-          if (userData.success && userData.user) {
-            login(userData.user)
-            localStorage.setItem('user_data', JSON.stringify(userData.user))
-            setError('Verification may have worked. Please check your dashboard.')
-            setTimeout(() => router.push('/dashboard'), 2000)
-          }
-        }
-      } catch (fallbackError) {
-        console.error('Fallback also failed:', fallbackError)
-      }
+      setError(err instanceof Error ? err.message : 'Verification failed. Please check your code and try again.')
     } finally {
       setIsVerifying(false)
     }
   }
 
-  // Resend code using GET request
+  // Resend code
   const handleResend = async () => {
     if (!canResend) return
 
@@ -258,28 +231,28 @@ function VerifyEmailContent() {
     setError(null)
 
     try {
-      // Use GET request with URL parameters
-      const apiUrl = `https://pulse.great-site.net/Google_signup/verify_email.php?email=${encodeURIComponent(email)}&resend=true`
-      
+      const apiUrl = `https://pulse.great-site.net/Google_signup/verify_email.php`
+
+      const formData = new FormData()
+      formData.append('email', email)
+      formData.append('resend', 'true')
+
       const response = await fetch(apiUrl, {
-        method: 'GET',
-        credentials: 'include',
+        method: 'POST',
         headers: {
           'Accept': 'application/json',
-        }
+          ...(jwtToken ? { Authorization: `Bearer ${jwtToken}` } : {})
+        },
+        body: formData
       })
 
       if (response.ok) {
         const data = await response.json()
-        
         if (data.success) {
           setTimeLeft(120)
           setCanResend(false)
           setCode(Array(6).fill(''))
-          
-          // Focus on first input field
           inputRefs.current[0]?.focus()
-          
           Swal.fire({
             icon: 'success',
             title: 'Code Resent!',
@@ -291,11 +264,12 @@ function VerifyEmailContent() {
           setError(data.message || 'Failed to resend verification code.')
         }
       } else {
-        throw new Error(`Server returned status: ${response.status}`)
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.message || `Server returned status: ${response.status}`)
       }
     } catch (err) {
       console.error('Resend error:', err)
-      setError('Failed to resend code. Please try again later.')
+      setError(err instanceof Error ? err.message : 'Failed to resend code. Please try again later.')
     } finally {
       setIsLoading(false)
     }
@@ -322,13 +296,13 @@ function VerifyEmailContent() {
           Enter the 6-digit code sent to<br />
           <strong>{email || 'your email'}</strong>
         </p>
-        
+
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-4">
             <p className="text-red-700 text-sm text-center">{error}</p>
           </div>
         )}
-        
+
         {(isLoading || isVerifying) && (
           <div className="flex justify-center mb-4">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
@@ -343,7 +317,7 @@ function VerifyEmailContent() {
             <input
               key={index}
               ref={(el) => {
-                inputRefs.current[index] = el
+                inputRefs.current[index] = el;
               }}
               type="text"
               inputMode="numeric"
@@ -358,7 +332,7 @@ function VerifyEmailContent() {
             />
           ))}
         </div>
-        
+
         <div className="text-center mb-6">
           {timeLeft > 0 ? (
             <p className="text-sm text-gray-500">
@@ -377,7 +351,7 @@ function VerifyEmailContent() {
             </button>
           )}
         </div>
-        
+
         <button
           onClick={handleVerify}
           disabled={code.join('').length !== 6 || isVerifying}
