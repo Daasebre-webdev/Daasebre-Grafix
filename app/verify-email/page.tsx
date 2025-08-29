@@ -9,7 +9,7 @@ import Swal from 'sweetalert2'
 export const dynamic = 'force-dynamic'
 
 function VerifyEmailContent() {
-  const { fetchUser } = useUser()
+  const { user, login } = useUser() // Use login instead of setUser
   const router = useRouter()
   const searchParams = useSearchParams()
   const [code, setCode] = useState<string[]>(Array(6).fill(''))
@@ -29,6 +29,71 @@ function VerifyEmailContent() {
       return error.message;
     }
     return String(error);
+  }
+
+  // Helper function to make API requests
+  const makeApiRequest = async (url: string, options: RequestInit = {}) => {
+    try {
+      const response = await fetch(url, {
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+        ...options,
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text()
+        console.warn('Server returned non-JSON response:', text.substring(0, 100))
+        throw new Error('Server returned invalid response format')
+      }
+
+      return await response.json()
+    } catch (err) {
+      console.error('API request failed:', err)
+      throw err
+    }
+  }
+
+  // Function to fetch user data using the enhanced get_user.php
+  const fetchUserData = async (userEmail: string) => {
+    try {
+      const data = await makeApiRequest(
+        `https://pulse.great-site.net/Google_signup/get_user.php?email=${encodeURIComponent(userEmail)}`,
+        { method: 'GET' }
+      )
+      
+      if (data.success && data.user) {
+        // Use the login function from UserContext instead of setUser
+        login(data.user)
+        localStorage.setItem('user_data', JSON.stringify(data.user))
+        return data.user
+      } else {
+        throw new Error(data.error || 'Failed to fetch user data')
+      }
+    } catch (err) {
+      console.error('Failed to fetch user data from get_user.php:', err)
+      // If we can't fetch fresh data, try to use stored data
+      const storedUser = localStorage.getItem('user_data')
+      if (storedUser) {
+        try {
+          const userData = JSON.parse(storedUser)
+          login(userData) // Use login instead of setUser
+          return userData
+        } catch (parseError) {
+          console.error('Error parsing stored user data:', parseError)
+          throw err
+        }
+      }
+      throw err
+    }
   }
 
   // 🔹 Fetch verification session from backend
@@ -58,24 +123,10 @@ function VerifyEmailContent() {
 
         // Try to fetch verification data from backend
         try {
-          const res = await fetch(
+          const data = await makeApiRequest(
             `https://pulse.great-site.net/Google_signup/verify_email.php?email=${encodeURIComponent(urlEmail)}`,
-            { 
-              method: 'GET',
-              credentials: 'include',
-              headers: {
-                'Accept': 'application/json',
-              }
-            }
+            { method: 'GET' }
           )
-          
-          // Check if response is JSON
-          const contentType = res.headers.get('content-type')
-          if (!contentType || !contentType.includes('application/json')) {
-            throw new Error('Server returned invalid response format')
-          }
-          
-          const data = await res.json()
           
           if (data.success) {
             if (data.expires_at) {
@@ -91,6 +142,8 @@ function VerifyEmailContent() {
             
             // Check if already verified
             if (data.redirect && (data.message === 'Already verified' || data.message === 'Email already verified')) {
+              // Use the enhanced get_user.php to fetch user data
+              await fetchUserData(urlEmail)
               router.push(data.redirect)
               return
             }
@@ -123,7 +176,7 @@ function VerifyEmailContent() {
     }
 
     initializeVerification()
-  }, [router, searchParams])
+  }, [router, searchParams, login]) // Add login to dependencies
 
   // Countdown timer
   useEffect(() => {
@@ -168,7 +221,7 @@ function VerifyEmailContent() {
   // Paste OTP code
   const handlePaste = (e: React.ClipboardEvent) => {
     e.preventDefault()
-    const pastedData = e.clipboardData.getData('text/plain').replace(/\D/g, '')
+    const pastedData = e.clipboardData.getData('text' as any).replace(/\D/g, '')
     if (pastedData.length === 6) {
       const newCode = pastedData.split('').slice(0, 6)
       setCode(newCode)
@@ -191,14 +244,10 @@ function VerifyEmailContent() {
     setError(null)
 
     try {
-      const response = await fetch(
+      const data = await makeApiRequest(
         'https://pulse.great-site.net/Google_signup/verify_email.php',
         {
           method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
           body: JSON.stringify({
             email,
             code: enteredCode,
@@ -206,17 +255,6 @@ function VerifyEmailContent() {
           }),
         }
       )
-
-      // Check if response is JSON
-      const contentType = response.headers.get('content-type')
-      if (!contentType || !contentType.includes('application/json')) {
-        // Try to parse as text to get more details about the error
-        const textResponse = await response.text()
-        console.error('Non-JSON response:', textResponse)
-        throw new Error(`Server error: ${response.status} ${response.statusText}`)
-      }
-
-      const data = await response.json()
       
       if (data.success) {
         // Store session token if provided
@@ -227,21 +265,20 @@ function VerifyEmailContent() {
           localStorage.setItem('jwt_token', data.jwt)
         }
         
-        // Store user data for dashboard
-        if (data.user) {
-          localStorage.setItem('user_data', JSON.stringify(data.user))
-        }
-        
         // Clear verification data
         localStorage.removeItem('email_to_verify')
         localStorage.removeItem('verification_expiry')
         
-        // Try to fetch user data, but if it fails, use the data from response
+        // Use the enhanced get_user.php to fetch user data
         try {
-          await fetchUser()
+          await fetchUserData(email)
         } catch (fetchError) {
-          console.warn('Could not fetch user data, using response data:', fetchError)
-          // We can still proceed with the data we have from the verification response
+          console.warn('Could not fetch user data from get_user.php, using response data:', fetchError)
+          // Fallback to using data from verification response if available
+          if (data.user) {
+            login(data.user) // Use login instead of setUser
+            localStorage.setItem('user_data', JSON.stringify(data.user))
+          }
         }
         
         Swal.fire({
@@ -269,7 +306,7 @@ function VerifyEmailContent() {
     } finally {
       setIsVerifying(false)
     }
-  } // <-- This closing brace was missing
+  }
 
   // Resend code
   const handleResend = async () => {
@@ -279,31 +316,16 @@ function VerifyEmailContent() {
     setError(null)
 
     try {
-      const response = await fetch(
+      const data = await makeApiRequest(
         'https://pulse.great-site.net/Google_signup/verify_email.php',
         {
           method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
           body: JSON.stringify({ 
             email, 
             resend: true 
           }),
         }
       )
-
-      // Check if response is JSON
-      const contentType = response.headers.get('content-type')
-      if (!contentType || !contentType.includes('application/json')) {
-        // Try to parse as text to get more details about the error
-        const textResponse = await response.text()
-        console.error('Non-JSON response:', textResponse)
-        throw new Error(`Server error: ${response.status} ${response.statusText}`)
-      }
-
-      const data = await response.json()
       
       if (data.success) {
         setTimeLeft(120) // Reset to 2 minutes
