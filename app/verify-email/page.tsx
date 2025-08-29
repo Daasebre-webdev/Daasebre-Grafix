@@ -20,7 +20,16 @@ function VerifyEmailContent() {
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [isVerifying, setIsVerifying] = useState<boolean>(false)
   const [isInitializing, setIsInitializing] = useState<boolean>(true)
+  const [usingFallback, setUsingFallback] = useState<boolean>(false)
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
+
+  // Helper function to safely get error message
+  const getErrorMessage = (error: unknown): string => {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    return String(error);
+  }
 
   // 🔹 Fetch verification session from backend
   useEffect(() => {
@@ -47,48 +56,55 @@ function VerifyEmailContent() {
           setCanResend(remaining <= 0)
         }
 
-        // Fetch verification data from backend
-        const res = await fetch(
-          `https://pulse.great-site.net/Google_signup/verify_email.php?email=${encodeURIComponent(urlEmail)}`,
-          { 
-            method: 'GET',
-            credentials: 'include',
-            headers: {
-              'Accept': 'application/json',
+        // Try to fetch verification data from backend
+        try {
+          const res = await fetch(
+            `https://pulse.great-site.net/Google_signup/verify_email.php?email=${encodeURIComponent(urlEmail)}`,
+            { 
+              method: 'GET',
+              credentials: 'include',
+              headers: {
+                'Accept': 'application/json',
+              }
             }
-          }
-        )
-        
-        // Check if response is JSON
-        const contentType = res.headers.get('content-type')
-        if (!contentType || !contentType.includes('application/json')) {
-          throw new Error('Server returned invalid response format')
-        }
-        
-        const data = await res.json()
-        
-        if (data.success) {
-          if (data.expires_at) {
-            // Convert to seconds if it's a timestamp
-            const expiresAt = typeof data.expires_at === 'number' 
-              ? data.expires_at 
-              : Math.floor(new Date(data.expires_at).getTime() / 1000);
-            
-            const remaining = Math.max(0, expiresAt - Math.floor(Date.now() / 1000))
-            setTimeLeft(remaining)
-            localStorage.setItem('verification_expiry', (Math.floor(Date.now() / 1000) + remaining).toString())
+          )
+          
+          // Check if response is JSON
+          const contentType = res.headers.get('content-type')
+          if (!contentType || !contentType.includes('application/json')) {
+            throw new Error('Server returned invalid response format')
           }
           
-          // Check if already verified
-          if (data.redirect && (data.message === 'Already verified' || data.message === 'Email already verified')) {
-            router.push(data.redirect)
-            return
+          const data = await res.json()
+          
+          if (data.success) {
+            if (data.expires_at) {
+              // Convert to seconds if it's a timestamp
+              const expiresAt = typeof data.expires_at === 'number' 
+                ? data.expires_at 
+                : Math.floor(new Date(data.expires_at).getTime() / 1000);
+              
+              const remaining = Math.max(0, expiresAt - Math.floor(Date.now() / 1000))
+              setTimeLeft(remaining)
+              localStorage.setItem('verification_expiry', (Math.floor(Date.now() / 1000) + remaining).toString())
+            }
+            
+            // Check if already verified
+            if (data.redirect && (data.message === 'Already verified' || data.message === 'Email already verified')) {
+              router.push(data.redirect)
+              return
+            }
+          } else {
+            setError(data.message || 'Verification session expired. Please sign up again.')
+            if (data.redirect) {
+              setTimeout(() => router.push(data.redirect), 3000)
+            }
           }
-        } else {
-          setError(data.message || 'Verification session expired. Please sign up again.')
-          if (data.redirect) {
-            setTimeout(() => router.push(data.redirect), 3000)
-          }
+        } catch (fetchError) {
+          console.error('API fetch error:', fetchError)
+          // If API call fails, we'll use fallback mode
+          setUsingFallback(true)
+          setError('Connection issue. Using cached data. You can still enter your verification code.')
         }
       } catch (err) {
         console.error('Error initializing verification:', err)
@@ -98,6 +114,7 @@ function VerifyEmailContent() {
         const fallbackEmail = localStorage.getItem('email_to_verify')
         if (fallbackEmail) {
           setEmail(fallbackEmail)
+          setUsingFallback(true)
           setError('Verification data loaded from cache. You can still enter your code.')
         }
       } finally {
@@ -193,7 +210,10 @@ function VerifyEmailContent() {
       // Check if response is JSON
       const contentType = response.headers.get('content-type')
       if (!contentType || !contentType.includes('application/json')) {
-        throw new Error('Server returned invalid response format')
+        // Try to parse as text to get more details about the error
+        const textResponse = await response.text()
+        console.error('Non-JSON response:', textResponse)
+        throw new Error(`Server error: ${response.status} ${response.statusText}`)
       }
 
       const data = await response.json()
@@ -207,11 +227,22 @@ function VerifyEmailContent() {
           localStorage.setItem('jwt_token', data.jwt)
         }
         
+        // Store user data for dashboard
+        if (data.user) {
+          localStorage.setItem('user_data', JSON.stringify(data.user))
+        }
+        
         // Clear verification data
         localStorage.removeItem('email_to_verify')
         localStorage.removeItem('verification_expiry')
         
-        await fetchUser()
+        // Try to fetch user data, but if it fails, use the data from response
+        try {
+          await fetchUser()
+        } catch (fetchError) {
+          console.warn('Could not fetch user data, using response data:', fetchError)
+          // We can still proceed with the data we have from the verification response
+        }
         
         Swal.fire({
           icon: 'success',
@@ -228,15 +259,17 @@ function VerifyEmailContent() {
       }
     } catch (err) {
       console.error('Verification error:', err)
-      setError(
-        err instanceof Error
-          ? `Verification failed: ${err.message}`
-          : 'Verification failed. Please try again.'
-      )
+      const errorMessage = getErrorMessage(err);
+      setError(`Verification failed: ${errorMessage}`)
+      
+      // If we're in fallback mode, suggest alternative actions
+      if (usingFallback) {
+        setError(`${errorMessage}. Please check your connection and try again, or contact support.`)
+      }
     } finally {
       setIsVerifying(false)
     }
-  }
+  } // <-- This closing brace was missing
 
   // Resend code
   const handleResend = async () => {
@@ -264,7 +297,10 @@ function VerifyEmailContent() {
       // Check if response is JSON
       const contentType = response.headers.get('content-type')
       if (!contentType || !contentType.includes('application/json')) {
-        throw new Error('Server returned invalid response format')
+        // Try to parse as text to get more details about the error
+        const textResponse = await response.text()
+        console.error('Non-JSON response:', textResponse)
+        throw new Error(`Server error: ${response.status} ${response.statusText}`)
       }
 
       const data = await response.json()
@@ -290,11 +326,8 @@ function VerifyEmailContent() {
       }
     } catch (err) {
       console.error('Resend error:', err)
-      setError(
-        err instanceof Error
-          ? `Failed to resend code: ${err.message}`
-          : 'Failed to resend verification code. Please try again.'
-      )
+      const errorMessage = getErrorMessage(err);
+      setError(`Failed to resend code: ${errorMessage}`)
     } finally {
       setIsLoading(false)
     }
@@ -363,8 +396,13 @@ function VerifyEmailContent() {
         </p>
         
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-4">
-            <p className="text-red-700 text-sm text-center">{error}</p>
+          <div className={`${usingFallback ? 'bg-yellow-50 border-yellow-200' : 'bg-red-50 border-red-200'} border rounded-md p-3 mb-4`}>
+            <p className={`${usingFallback ? 'text-yellow-700' : 'text-red-700'} text-sm text-center`}>{error}</p>
+            {usingFallback && (
+              <p className="text-yellow-600 text-xs text-center mt-1">
+                You can still try to verify your code, but some features may not work properly.
+              </p>
+            )}
           </div>
         )}
         
@@ -437,6 +475,16 @@ function VerifyEmailContent() {
             Terms and Conditions
           </span>
         </p>
+        
+        {usingFallback && (
+          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+            <p className="text-blue-700 text-sm text-center">
+              <strong>Connection Issue:</strong> We&apos;re having trouble connecting to the server. 
+              You can still try to verify your code, but if it doesn&apos;t work, please check your 
+              internet connection and try again later.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -444,11 +492,13 @@ function VerifyEmailContent() {
 
 export default function VerifyEmail() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-      </div>
-    }>
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+        </div>
+      }
+    >
       <VerifyEmailContent />
     </Suspense>
   )
