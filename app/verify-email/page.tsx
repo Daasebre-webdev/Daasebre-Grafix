@@ -9,18 +9,17 @@ import Swal from 'sweetalert2'
 export const dynamic = 'force-dynamic'
 
 function VerifyEmailContent() {
-  const { user, login } = useUser() // Use login instead of setUser
+  const { login } = useUser()
   const router = useRouter()
   const searchParams = useSearchParams()
   const [code, setCode] = useState<string[]>(Array(6).fill(''))
-  const [timeLeft, setTimeLeft] = useState<number>(120) // 2 minutes
+  const [timeLeft, setTimeLeft] = useState<number>(120)
   const [canResend, setCanResend] = useState<boolean>(false)
   const [email, setEmail] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [isVerifying, setIsVerifying] = useState<boolean>(false)
   const [isInitializing, setIsInitializing] = useState<boolean>(true)
-  const [usingFallback, setUsingFallback] = useState<boolean>(false)
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
 
   // Helper function to safely get error message
@@ -31,70 +30,13 @@ function VerifyEmailContent() {
     return String(error);
   }
 
-  // Helper function to make API requests
-  const makeApiRequest = async (url: string, options: RequestInit = {}) => {
-    try {
-      const response = await fetch(url, {
-        credentials: 'include',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          ...options.headers,
-        },
-        ...options,
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      const contentType = response.headers.get('content-type')
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await response.text()
-        console.warn('Server returned non-JSON response:', text.substring(0, 100))
-        throw new Error('Server returned invalid response format')
-      }
-
-      return await response.json()
-    } catch (err) {
-      console.error('API request failed:', err)
-      throw err
+  // Clear error when code changes
+  useEffect(() => {
+    const enteredCode = code.join('')
+    if (enteredCode.length === 6 && error === 'Please enter all 6 digits of the verification code.') {
+      setError(null)
     }
-  }
-
-  // Function to fetch user data using the enhanced get_user.php
-  const fetchUserData = async (userEmail: string) => {
-    try {
-      const data = await makeApiRequest(
-        `https://pulse.great-site.net/Google_signup/get_user.php?email=${encodeURIComponent(userEmail)}`,
-        { method: 'GET' }
-      )
-      
-      if (data.success && data.user) {
-        // Use the login function from UserContext instead of setUser
-        login(data.user)
-        localStorage.setItem('user_data', JSON.stringify(data.user))
-        return data.user
-      } else {
-        throw new Error(data.error || 'Failed to fetch user data')
-      }
-    } catch (err) {
-      console.error('Failed to fetch user data from get_user.php:', err)
-      // If we can't fetch fresh data, try to use stored data
-      const storedUser = localStorage.getItem('user_data')
-      if (storedUser) {
-        try {
-          const userData = JSON.parse(storedUser)
-          login(userData) // Use login instead of setUser
-          return userData
-        } catch (parseError) {
-          console.error('Error parsing stored user data:', parseError)
-          throw err
-        }
-      }
-      throw err
-    }
-  }
+  }, [code, error])
 
   // 🔹 Fetch verification session from backend
   useEffect(() => {
@@ -123,14 +65,30 @@ function VerifyEmailContent() {
 
         // Try to fetch verification data from backend
         try {
-          const data = await makeApiRequest(
+          const response = await fetch(
             `https://pulse.great-site.net/Google_signup/verify_email.php?email=${encodeURIComponent(urlEmail)}`,
-            { method: 'GET' }
+            { 
+              method: 'GET',
+              credentials: 'include',
+              headers: {
+                'Accept': 'application/json',
+              }
+            }
           )
+          
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`)
+          }
+
+          const contentType = response.headers.get('content-type')
+          if (!contentType || !contentType.includes('application/json')) {
+            throw new Error('Server returned invalid response format')
+          }
+          
+          const data = await response.json()
           
           if (data.success) {
             if (data.expires_at) {
-              // Convert to seconds if it's a timestamp
               const expiresAt = typeof data.expires_at === 'number' 
                 ? data.expires_at 
                 : Math.floor(new Date(data.expires_at).getTime() / 1000);
@@ -141,9 +99,8 @@ function VerifyEmailContent() {
             }
             
             // Check if already verified
-            if (data.redirect && (data.message === 'Already verified' || data.message === 'Email already verified')) {
-              // Use the enhanced get_user.php to fetch user data
-              await fetchUserData(urlEmail)
+            if (data.redirect && data.message?.includes('verified')) {
+              // User is already verified, redirect to dashboard
               router.push(data.redirect)
               return
             }
@@ -155,28 +112,18 @@ function VerifyEmailContent() {
           }
         } catch (fetchError) {
           console.error('API fetch error:', fetchError)
-          // If API call fails, we'll use fallback mode
-          setUsingFallback(true)
-          setError('Connection issue. Using cached data. You can still enter your verification code.')
+          setError('Connection issue. Please check your internet connection.')
         }
       } catch (err) {
         console.error('Error initializing verification:', err)
         setError('Could not load verification data. Please try again later.')
-        
-        // Try to get email from session storage as fallback
-        const fallbackEmail = localStorage.getItem('email_to_verify')
-        if (fallbackEmail) {
-          setEmail(fallbackEmail)
-          setUsingFallback(true)
-          setError('Verification data loaded from cache. You can still enter your code.')
-        }
       } finally {
         setIsInitializing(false)
       }
     }
 
     initializeVerification()
-  }, [router, searchParams, login]) // Add login to dependencies
+  }, [router, searchParams])
 
   // Countdown timer
   useEffect(() => {
@@ -203,11 +150,18 @@ function VerifyEmailContent() {
       newCode[index] = value
       setCode(newCode)
       
+      // Clear error when user starts typing
+      if (error && error.includes('Please enter all 6 digits')) {
+        setError(null)
+      }
+      
+      if (value && index < 5) {
+        inputRefs.current[index + 1]?.focus()
+      }
+      
       // Auto-submit when all digits are entered
       if (value && index === 5 && newCode.every(digit => digit !== '')) {
         handleVerify()
-      } else if (value && index < 5) {
-        inputRefs.current[index + 1]?.focus()
       }
     }
   }
@@ -218,21 +172,7 @@ function VerifyEmailContent() {
     }
   }
 
-  // Paste OTP code
-  const handlePaste = (e: React.ClipboardEvent) => {
-    e.preventDefault()
-    const pastedData = e.clipboardData.getData('text' as any).replace(/\D/g, '')
-    if (pastedData.length === 6) {
-      const newCode = pastedData.split('').slice(0, 6)
-      setCode(newCode)
-      
-      // Auto-focus the last input and submit
-      inputRefs.current[5]?.focus()
-      setTimeout(() => handleVerify(), 100)
-    }
-  }
-
-  // Submit verification code (manual + google)
+  // Submit verification code
   const handleVerify = async () => {
     const enteredCode = code.join('')
     if (enteredCode.length !== 6) {
@@ -244,20 +184,36 @@ function VerifyEmailContent() {
     setError(null)
 
     try {
-      const data = await makeApiRequest(
+      // Use FormData instead of JSON to match typical PHP form handling
+      const formData = new FormData()
+      formData.append('email', email)
+      formData.append('code', enteredCode)
+      formData.append('agreed_to_terms', 'true')
+
+      const response = await fetch(
         'https://pulse.great-site.net/Google_signup/verify_email.php',
         {
           method: 'POST',
-          body: JSON.stringify({
-            email,
-            code: enteredCode,
-            agreed_to_terms: true
-          }),
+          credentials: 'include',
+          body: formData,
         }
       )
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        const textResponse = await response.text()
+        console.error('Non-JSON response:', textResponse)
+        throw new Error('Server returned invalid response format')
+      }
+
+      const data = await response.json()
       
       if (data.success) {
-        // Store session token if provided
+        // Store tokens if provided
         if (data.user?.token) {
           localStorage.setItem('session_token', data.user.token)
         }
@@ -265,27 +221,20 @@ function VerifyEmailContent() {
           localStorage.setItem('jwt_token', data.jwt)
         }
         
+        // Store user data for dashboard
+        if (data.user) {
+          login(data.user) // Use the login function from UserContext
+          localStorage.setItem('user_data', JSON.stringify(data.user))
+        }
+        
         // Clear verification data
         localStorage.removeItem('email_to_verify')
         localStorage.removeItem('verification_expiry')
-        
-        // Use the enhanced get_user.php to fetch user data
-        try {
-          await fetchUserData(email)
-        } catch (fetchError) {
-          console.warn('Could not fetch user data from get_user.php, using response data:', fetchError)
-          // Fallback to using data from verification response if available
-          if (data.user) {
-            login(data.user) // Use login instead of setUser
-            localStorage.setItem('user_data', JSON.stringify(data.user))
-          }
-        }
         
         Swal.fire({
           icon: 'success',
           title: 'Verification Successful!',
           text: 'Your email has been verified successfully.',
-          confirmButtonColor: '#28a745',
           timer: 2000,
           showConfirmButton: false,
         }).then(() => {
@@ -296,13 +245,8 @@ function VerifyEmailContent() {
       }
     } catch (err) {
       console.error('Verification error:', err)
-      const errorMessage = getErrorMessage(err);
-      setError(`Verification failed: ${errorMessage}`)
-      
-      // If we're in fallback mode, suggest alternative actions
-      if (usingFallback) {
-        setError(`${errorMessage}. Please check your connection and try again, or contact support.`)
-      }
+      const errorMessage = getErrorMessage(err)
+      setError(`Verification failed: ${errorMessage}. Please check your connection and try again.`)
     } finally {
       setIsVerifying(false)
     }
@@ -316,19 +260,35 @@ function VerifyEmailContent() {
     setError(null)
 
     try {
-      const data = await makeApiRequest(
+      // Use FormData instead of JSON
+      const formData = new FormData()
+      formData.append('email', email)
+      formData.append('resend', 'true')
+
+      const response = await fetch(
         'https://pulse.great-site.net/Google_signup/verify_email.php',
         {
           method: 'POST',
-          body: JSON.stringify({ 
-            email, 
-            resend: true 
-          }),
+          credentials: 'include',
+          body: formData,
         }
       )
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        const textResponse = await response.text()
+        console.error('Non-JSON response:', textResponse)
+        throw new Error('Server returned invalid response format')
+      }
+
+      const data = await response.json()
       
       if (data.success) {
-        setTimeLeft(120) // Reset to 2 minutes
+        setTimeLeft(120)
         setCanResend(false)
         setCode(Array(6).fill(''))
         
@@ -339,7 +299,6 @@ function VerifyEmailContent() {
           icon: 'success',
           title: 'Code Resent!',
           text: 'A new verification code has been sent to your email.',
-          confirmButtonColor: '#28a745',
           timer: 3000,
           showConfirmButton: false,
         })
@@ -348,51 +307,11 @@ function VerifyEmailContent() {
       }
     } catch (err) {
       console.error('Resend error:', err)
-      const errorMessage = getErrorMessage(err);
+      const errorMessage = getErrorMessage(err)
       setError(`Failed to resend code: ${errorMessage}`)
     } finally {
       setIsLoading(false)
     }
-  }
-
-  // Show Terms with SweetAlert2
-  const handleShowTerms = () => {
-    Swal.fire({
-      title: 'Terms and Conditions',
-      html: `
-        <div style="text-align: left; max-height: 60vh; overflow-y: auto; font-size: 14px;">
-          <h3 style="font-size: 1.1em; margin-bottom: 0.5rem;">Project Pulse Terms of Service</h3>
-          <p style="margin-bottom: 1rem;">Last Updated: ${new Date().toLocaleDateString()}</p>
-          <h4 style="font-size: 1em; margin-bottom: 0.5rem;">1. Acceptance of Terms</h4>
-          <p style="margin-bottom: 1rem;">By using Project Pulse, you agree to these terms and our Privacy Policy.</p>
-          <h4 style="font-size: 1em; margin-bottom: 0.5rem;">2. User Responsibilities</h4>
-          <ul style="padding-left: 1.5rem; margin-bottom: 1rem;">
-            <li style="margin-bottom: 0.5rem;">You must provide accurate registration information</li>
-            <li style="margin-bottom: 0.5rem;">You are responsible for maintaining the confidentiality of your account</li>
-            <li>You agree to use the service for lawful purposes only</li>
-          </ul>
-          <h4 style="font-size: 1em; margin-bottom: 0.5rem;">3. Intellectual Property</h4>
-          <p style="margin-bottom: 1rem;">All content and trademarks are property of Project Pulse.</p>
-          <h4 style="font-size: 1em; margin-bottom: 0.5rem;">4. Limitation of Liability</h4>
-          <p>Project Pulse is not liable for any indirect, incidental, or consequential damages.</p>
-        </div>
-      `,
-      width: '800px',
-      padding: '20px',
-      background: '#ffffff',
-      customClass: {
-        popup: 'rounded-lg shadow-xl',
-        confirmButton: 'px-6 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-md text-white font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
-        closeButton: 'text-gray-400 hover:text-gray-600',
-      },
-      showCloseButton: true,
-      showConfirmButton: true,
-      confirmButtonText: 'I Accept',
-      showCancelButton: true,
-      cancelButtonText: 'Close',
-      buttonsStyling: false,
-      scrollbarPadding: false,
-    })
   }
 
   if (isInitializing) {
@@ -418,13 +337,8 @@ function VerifyEmailContent() {
         </p>
         
         {error && (
-          <div className={`${usingFallback ? 'bg-yellow-50 border-yellow-200' : 'bg-red-50 border-red-200'} border rounded-md p-3 mb-4`}>
-            <p className={`${usingFallback ? 'text-yellow-700' : 'text-red-700'} text-sm text-center`}>{error}</p>
-            {usingFallback && (
-              <p className="text-yellow-600 text-xs text-center mt-1">
-                You can still try to verify your code, but some features may not work properly.
-              </p>
-            )}
+          <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-4">
+            <p className="text-red-700 text-sm text-center">{error}</p>
           </div>
         )}
         
@@ -437,10 +351,7 @@ function VerifyEmailContent() {
           </div>
         )}
 
-        <div 
-          className="flex justify-between mb-6"
-          onPaste={handlePaste}
-        >
+        <div className="flex justify-between mb-6">
           {code.map((digit, index) => (
             <input
               key={index}
@@ -487,26 +398,6 @@ function VerifyEmailContent() {
         >
           {isVerifying ? 'Verifying...' : 'Verify Email'}
         </button>
-        
-        <p className="mt-6 text-xs sm:text-sm text-gray-500 text-center">
-          By verifying, you agree to our{' '}
-          <span
-            onClick={handleShowTerms}
-            className="text-indigo-600 hover:text-indigo-500 cursor-pointer"
-          >
-            Terms and Conditions
-          </span>
-        </p>
-        
-        {usingFallback && (
-          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
-            <p className="text-blue-700 text-sm text-center">
-              <strong>Connection Issue:</strong> We&apos;re having trouble connecting to the server. 
-              You can still try to verify your code, but if it doesn&apos;t work, please check your 
-              internet connection and try again later.
-            </p>
-          </div>
-        )}
       </div>
     </div>
   )
