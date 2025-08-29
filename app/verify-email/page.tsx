@@ -49,15 +49,21 @@ function VerifyEmailContent() {
         setEmail(urlEmail)
         localStorage.setItem('email_to_verify', urlEmail)
 
-        // Fetch verification info from backend
-        const apiUrl = `https://pulse.great-site.net/Google_signup/verify_email.php?email=${encodeURIComponent(urlEmail)}&action=check_status`
+        // Fetch verification info from backend - use POST instead of GET
+        const apiUrl = `https://pulse.great-site.net/Google_signup/verify_email.php`
+
+        const formData = new FormData()
+        formData.append('email', urlEmail)
+        formData.append('action', 'check_status')
 
         const response = await fetch(apiUrl, {
-          method: 'GET',
+          method: 'POST',
           headers: {
             'Accept': 'application/json',
             ...(jwtToken ? { Authorization: `Bearer ${jwtToken}` } : {})
           },
+          body: formData,
+          credentials: 'include' // Important for sessions
         })
 
         if (response.ok) {
@@ -156,7 +162,8 @@ function VerifyEmailContent() {
           'Accept': 'application/json',
           ...(jwtToken ? { Authorization: `Bearer ${jwtToken}` } : {})
         },
-        body: formData
+        body: formData,
+        credentials: 'include' // Important for sessions
       })
 
       if (response.ok) {
@@ -171,14 +178,15 @@ function VerifyEmailContent() {
           }
           
           // Fetch complete user data using the new JWT token
-          if (data.jwt && data.user) {
+          if (data.jwt) {
             try {
               const userResponse = await fetch(`https://pulse.great-site.net/Google_signup/get_user.php`, {
                 method: 'GET',
                 headers: {
                   'Accept': 'application/json',
                   'Authorization': `Bearer ${data.jwt}`
-                }
+                },
+                credentials: 'include'
               })
 
               if (userResponse.ok) {
@@ -243,7 +251,8 @@ function VerifyEmailContent() {
           'Accept': 'application/json',
           ...(jwtToken ? { Authorization: `Bearer ${jwtToken}` } : {})
         },
-        body: formData
+        body: formData,
+        credentials: 'include' // Important for sessions
       })
 
       if (response.ok) {
