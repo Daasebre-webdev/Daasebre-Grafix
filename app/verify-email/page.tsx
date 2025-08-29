@@ -29,6 +29,24 @@ interface ApiResponse {
   error_code?: number;
 }
 
+// Function to decode JWT token
+const decodeJWT = (token: string) => {
+  try {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    return JSON.parse(jsonPayload);
+  } catch (error) {
+    console.error('Failed to decode JWT:', error);
+    return null;
+  }
+};
+
 function VerifyEmailContent() {
   const { login } = useUser()
   const router = useRouter()
@@ -45,54 +63,67 @@ function VerifyEmailContent() {
   // JWT from localStorage
   const jwtToken = typeof window !== 'undefined' ? localStorage.getItem('jwt_token') : null
 
-  // Initialize - get email and expiry time with better error handling
+  // Initialize - get email from JWT token or session
   useEffect(() => {
     const initVerify = async () => {
       try {
-        const apiUrl = 'https://pulse.great-site.net/Google_signup/verify_email.php'
-        
-        console.log('Initializing verification with token:', jwtToken ? 'Available' : 'Not available');
-        
-        const response = await fetch(apiUrl, {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-            ...(jwtToken ? { Authorization: `Bearer ${jwtToken}` } : {}),
-          },
-          credentials: 'include',
-        })
+        // First, try to get email from JWT token
+        if (jwtToken) {
+          const decodedToken = decodeJWT(jwtToken);
+          if (decodedToken && decodedToken.email) {
+            setEmail(decodedToken.email);
+            localStorage.setItem('email_to_verify', decodedToken.email);
+            console.log('Email extracted from JWT:', decodedToken.email);
+          }
+        }
 
-        console.log('Initialization response status:', response.status);
-
-        if (response.ok) {
-          const data: ApiResponse = await response.json()
-          console.log('Initialization response data:', data);
+        // If we still don't have an email, try the API
+        if (!email) {
+          const apiUrl = 'https://pulse.great-site.net/Google_signup/verify_email.php'
           
-          if (data.success) {
-            if (data.redirect) {
-              // Already verified, redirect to dashboard
-              router.push(data.redirect)
-              return
-            }
+          console.log('Initializing verification with token:', jwtToken ? 'Available' : 'Not available');
+          
+          const response = await fetch(apiUrl, {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+              ...(jwtToken ? { Authorization: `Bearer ${jwtToken}` } : {}),
+            },
+            credentials: 'include',
+          })
+
+          console.log('Initialization response status:', response.status);
+
+          if (response.ok) {
+            const data: ApiResponse = await response.json()
+            console.log('Initialization response data:', data);
             
-            if (data.email) {
-              setEmail(data.email)
-              localStorage.setItem('email_to_verify', data.email)
-            }
-            
-            if (data.expires_at) {
-              const remaining = Math.max(0, data.expires_at - Math.floor(Date.now() / 1000))
-              setTimeLeft(remaining)
-              setCanResend(remaining <= 0)
-              localStorage.setItem('verification_expiry', data.expires_at.toString())
+            if (data.success) {
+              if (data.redirect) {
+                // Already verified, redirect to dashboard
+                router.push(data.redirect)
+                return
+              }
+              
+              if (data.email) {
+                setEmail(data.email)
+                localStorage.setItem('email_to_verify', data.email)
+              }
+              
+              if (data.expires_at) {
+                const remaining = Math.max(0, data.expires_at - Math.floor(Date.now() / 1000))
+                setTimeLeft(remaining)
+                setCanResend(remaining <= 0)
+                localStorage.setItem('verification_expiry', data.expires_at.toString())
+              }
+            } else {
+              setError(data.message || 'Failed to initialize verification')
+              setInitializationFailed(true)
             }
           } else {
-            setError(data.message || 'Failed to initialize verification')
+            console.error('Initialization failed with status:', response.status);
             setInitializationFailed(true)
           }
-        } else {
-          console.error('Initialization failed with status:', response.status);
-          setInitializationFailed(true)
         }
       } catch (err) {
         console.error('Initialization error:', err)
@@ -106,10 +137,10 @@ function VerifyEmailContent() {
       setEmail(savedEmail);
       console.log('Pre-loaded email from localStorage:', savedEmail);
     } else {
-      // If no email in localStorage, try to get it from the API
+      // If no email in localStorage, try to get it from JWT or API
       initVerify()
     }
-  }, [jwtToken, router])
+  }, [jwtToken, router, email])
 
   // Countdown timer
   useEffect(() => {
